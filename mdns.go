@@ -24,32 +24,32 @@ var (
 
 	// See man mdns-scan for examples
 	//
-	protocolTable []string = []string{
-		"_ident._tcp",
-		"_finger._tcp",
-		"_workstation._tcp",
-		//"_netbios-ns._udp",
-		"_spotify-connect._tcp",
-		"_afpovertcp._tcp",
-		"_device-info._udp",
-		"_snmp._udp",
-		"_music._tcp",
-		"_printer._tcp",
-		"_http.tcp",
-		"_raop._tcp",
-		"_airplay._tcp",
-		"_nvstream._tcp",
-		"_googlecast._tcp",
-		"_sleep-proxy._udp",
-		"_touch-able._tcp",
-		"_ssh._tcp",
-		"_services._dns-sd._udp",
-		//"lb.dns-sd._udp",
+	protocolTable = []string{
+		"_ident._tcp.",
+		"_finger._tcp.",
+		"_workstation._tcp.",
+		//"_netbios-ns._udp.",
+		"_spotify-connect._tcp.",
+		"_afpovertcp._tcp.",
+		"_device-info._udp.",
+		"_snmp._udp.",
+		"_music._tcp.",
+		"_printer._tcp.",
+		"_http.tcp.",
+		"_raop._tcp.",
+		"_airplay._tcp.",
+		"_nvstream._tcp.",
+		"_googlecast._tcp.",
+		"_sleep-proxy._udp.",
+		"_touch-able._tcp.",
+		"_ssh._tcp.",
+		"_services._dns-sd._udp.",
+		//"lb.dns-sd._udp.",
 	}
 )
 
-// MDNSServiceEntry is returned after we query for a service
-type MDNSServiceEntry struct {
+// Entry is returned after we query for a service
+type Entry struct {
 	Name       string
 	Host       string
 	AddrV4     net.IP
@@ -63,14 +63,14 @@ type MDNSServiceEntry struct {
 }
 
 // complete is used to check if we have all the info we need
-func (s *MDNSServiceEntry) complete() bool {
+func (s *Entry) complete() bool {
 	//return (s.AddrV4 != nil || s.AddrV6 != nil) && s.Port != 0 && s.hasTXT
 	return (s.AddrV4 != nil || s.AddrV6 != nil)
 }
 
-// Client provides a query interface that can be used to
+// Handler provides a query interface that can be used to
 // search for service providers using mDNS
-type MDNSClient struct {
+type Handler struct {
 
 	// We will spaw a goroutine for each connection
 	uconn4 *net.UDPConn
@@ -81,30 +81,25 @@ type MDNSClient struct {
 	// Collect all msg from the 4 connections
 	msgCh chan *dns.Msg
 
-	inprogress map[string]*MDNSServiceEntry
+	inprogress map[string]*Entry
 
 	// Notification channel for the caller
-	notification chan<- *MDNSServiceEntry
+	notification chan<- *Entry
 
-	closed    bool
-	closeLock sync.Mutex
+	workers *GoroutinePool
 }
 
-func (c *MDNSClient) Discovery() {
-	for i := range protocolTable {
-		c.Query("local", protocolTable[i], false)
-		time.Sleep(25 * time.Millisecond)
-	}
-}
+// NewHandler create a Multicast DNS handler for a given interface
+//
+func NewHandler(nic string) (c *Handler, err error) {
 
-func MDNSService() (c *MDNSClient, err error) {
-
-	client := &MDNSClient{}
-	client.inprogress = make(map[string]*MDNSServiceEntry)
+	client := &Handler{}
+	client.inprogress = make(map[string]*Entry)
+	client.workers = goroutinepool.New("mdns")
 
 	// FIXME: Set the multicast interface
 	// if params.Interface != nil {
-	// if err := MDNSClient.setInterface(params.Interface); err != nil {
+	// if err := Handler.setInterface(params.Interface); err != nil {
 	// return nil, err
 	// }
 	// }
@@ -112,12 +107,12 @@ func MDNSService() (c *MDNSClient, err error) {
 	// channel to receive responses
 	client.msgCh = make(chan *dns.Msg, 32)
 
-	client.uconn4, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
-	if err != nil {
+	// Unicast
+	if client.uconn4, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0}); err != nil {
 		log.Errorf("MDNS: Failed to bind to udp4 port: %v", err)
 	}
-	client.uconn6, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
-	if err != nil {
+
+	if client.uconn6, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0}); err != nil {
 		log.Errorf("MDNS: Failed to bind to udp6 port: %v", err)
 	}
 
@@ -125,12 +120,11 @@ func MDNSService() (c *MDNSClient, err error) {
 		return nil, fmt.Errorf("MDNS failed to bind to any unicast udp port")
 	}
 
-	client.mconn4, err = net.ListenMulticastUDP("udp4", nil, mdnsIPv4Addr)
-	if err != nil {
+	// Multicast
+	if client.mconn4, err = net.ListenMulticastUDP("udp4", nil, mdnsIPv4Addr); err != nil {
 		log.Errorf("MDNS: Failed to bind to udp4 port: %v", err)
 	}
-	client.mconn6, err = net.ListenMulticastUDP("udp6", nil, mdnsIPv6Addr)
-	if err != nil {
+	if client.mconn6, err = net.ListenMulticastUDP("udp6", nil, mdnsIPv6Addr); err != nil {
 		log.Errorf("MDNS: Failed to bind to udp6 port: %v", err)
 	}
 
@@ -141,11 +135,12 @@ func MDNSService() (c *MDNSClient, err error) {
 	return client, nil
 }
 
-func (c *MDNSClient) AddNotificationChannel(notification chan<- *MDNSServiceEntry) {
+// AddNotificationChannel set the channel for notifications
+func (c *Handler) AddNotificationChannel(notification chan<- *Entry) {
 	c.notification = notification
 }
 
-func (c *MDNSClient) GetName(ip string) (name string) {
+func (c *Handler) getName(ip string) (name string) {
 	mdnsMutex.Lock()
 	defer mdnsMutex.Unlock()
 
@@ -157,7 +152,7 @@ func (c *MDNSClient) GetName(ip string) (name string) {
 	return ""
 }
 
-func (c *MDNSClient) GetTable() (table []MDNSServiceEntry) {
+func (c *Handler) getTable() (table []Entry) {
 	mdnsMutex.Lock()
 	defer mdnsMutex.Unlock()
 
@@ -169,11 +164,11 @@ func (c *MDNSClient) GetTable() (table []MDNSServiceEntry) {
 	return table
 }
 
-//func (c *MDNSClient) PrintTable() {
-func PrintTable(inprogress map[string]*MDNSServiceEntry) {
+// PrintTable will print entries to stdout
+func (c *Handler) PrintTable() {
 	// table := c.GetTable()
 
-	for k, e := range inprogress {
+	for k, e := range c.inprogress {
 		var ip net.IP
 		if e.AddrV4.Equal(net.IPv4zero) {
 			ip = e.AddrV6
@@ -181,29 +176,28 @@ func PrintTable(inprogress map[string]*MDNSServiceEntry) {
 			ip = e.AddrV4
 		}
 		log.Infof("MDNS entry %16s %16s %16s %14s %4v %20v %v", k, e.Name, e.Host, ip, e.Port, e.Info, e.InfoFields)
-		//log.Infof("MDNS entry %16s %16s %16s %14s %4v", k, e.Name, e.Host, ip, e.Port)
 	}
 }
 
-// Close is used to cleanup the MDNSClient
-func (c *MDNSClient) Close() error {
-	c.closeLock.Lock()
-	defer c.closeLock.Unlock()
+// Stop is used to cleanup the Handler
+func (c *Handler) Stop() {
+	c.workers.Stop() // will stop all goroutines
+}
 
-	if c.closed {
-		return nil
-	}
-	c.closed = true
-
-	log.Printf("[INFO] mdns: Closing MDNSClient %v", *c)
-	// close(c.closedCh)
-
-	return nil
+func (c *Handler) closeAll() {
+	c.uconn4.Close()
+	c.mconn4.Close()
+	c.mconn4.Close()
+	c.mconn4.Close()
+	c.uconn6.Close()
+	c.mconn6.Close()
+	c.mconn6.Close()
+	c.mconn6.Close()
 }
 
 // setInterface is used to set the query interface, uses sytem
 // default if not provided
-func (c *MDNSClient) setInterface(iface *net.Interface) error {
+func (c *Handler) setInterface(iface *net.Interface) error {
 	p := ipv4.NewPacketConn(c.uconn4)
 	if err := p.SetMulticastInterface(iface); err != nil {
 		return err
@@ -223,13 +217,17 @@ func (c *MDNSClient) setInterface(iface *net.Interface) error {
 	return nil
 }
 
-func (c *MDNSClient) ListenAndServe() error {
-	log.Info("naming start ListenAndServe")
+// ListenAndServe is the main loop to listen for MDNS packets.
+func (c *Handler) ListenAndServe(queryInterval time.Duration) {
+	h := c.workers.Begin("ListenAndServe")
+	defer h.End()
 
-	go c.recv(c.uconn4, c.msgCh)
-	go c.recv(c.uconn6, c.msgCh)
-	go c.recv(c.mconn4, c.msgCh)
-	go c.recv(c.mconn6, c.msgCh)
+	go c.recvLoop(c.uconn4, c.msgCh)
+	go c.recvLoop(c.uconn6, c.msgCh)
+	go c.recvLoop(c.mconn4, c.msgCh)
+	go c.recvLoop(c.mconn6, c.msgCh)
+
+	go c.queryLoop(queryInterval)
 
 	// Listen until we reach the timeout
 	// finish := time.After(c.params.Timeout)
@@ -237,99 +235,75 @@ func (c *MDNSClient) ListenAndServe() error {
 		select {
 		case resp := <-c.msgCh:
 			// log.Debug("MDNS channel resp = ", resp)
-			var inp *MDNSServiceEntry
+			var entry *Entry
 			for _, answer := range append(resp.Answer, resp.Extra...) {
-				//log.Info("naming in mdnsclient anwer ", answer)
+				//log.Info("mdns in Handler anwer ", answer)
 				switch rr := answer.(type) {
-				// Only need the A record
-				/***
-								case *dns.PTR:
-									// Create new entry for this
-									log.Infof("naming dns.PTR %s - Name %s", rr.Ptr, rr.Hdr.Name)
-									inp = ensureName(c.inprogress, rr.Ptr)
-
-								case *dns.SRV:
-									// Check for a target mismatch
-									// rr.Target is the host name in general but Hdr.Name contains the FQN
-
-									if rr.Target != rr.Hdr.Name {
-										alias(c.inprogress, rr.Hdr.Name, rr.Target)
-									}
-
-									// Get the port
-									inp = ensureName(c.inprogress, rr.Hdr.Name)
-									inp.Host = rr.Target
-									inp.Port = int(rr.Port)
-
-								case *dns.TXT:
-									// Pull out the txt
-									inp = ensureName(c.inprogress, rr.Hdr.Name)
-									inp.Info = strings.Join(rr.Txt, "|")
-									inp.InfoFields = rr.Txt
-									inp.hasTXT = true
-
-								case *dns.AAAA:
-									// Pull out the IP
-									inp = ensureName(c.inprogress, rr.Hdr.Name)
-									inp.AddrV6 = rr.AAAA
-				***/
 				case *dns.A:
 					// Pull out the IP
-					// log.Infof("MDNS add %s IP %s", rr.Hdr.Name, rr.A)
-					inp = ensureName(c.inprogress, rr.Hdr.Name)
-					inp.AddrV4 = rr.A
-
+					log.Debugf("MDNS add %s IP %s", rr.Hdr.Name, rr.A)
+					entry = ensureName(c.inprogress, rr.Hdr.Name)
+					entry.AddrV4 = rr.A
 				}
 			}
 
-			if inp == nil {
+			if entry == nil {
 				continue
 			}
 
-			inp.sent = true
+			log.Info("mdns got new entry ", *entry)
+			entry.sent = true
 			// iphone send  "Denis's\ iphone"
-			inp.Name = strings.Replace(inp.Name, "\\", "", -1)
+			entry.Name = strings.Replace(entry.Name, "\\", "", -1)
 
 			// Notify if channel given
 			if c.notification != nil {
-				c.notification <- inp
+				c.notification <- entry
 			}
 
-			// case <-finish:
-			// return nil
+		case <-c.workers.StopChannel:
+			c.closeAll()
+			return
 		}
 	}
 }
 
-// query is used to perform a lookup and stream results
-func (c *MDNSClient) Query(domain string, service string, unicast bool) error {
-	// Create the service name
-	serviceAddr := fmt.Sprintf("%s.%s.", strings.Trim(service, "."), strings.Trim(domain, "."))
+// queryLoop is used to perform a lookup and stream results
+func (c *Handler) queryLoop(queryInterval time.Duration) {
+	h := c.workers.Begin("queryLoop")
+	defer h.End()
 
-	// Send the query
-	m := new(dns.Msg)
-	m.SetQuestion(serviceAddr, dns.TypePTR)
-	// RFC 6762, section 18.12.  Repurposing of Top Bit of qclass in Question
-	// Section
-	//
-	// In the Question Section of a Multicast DNS query, the top bit of the qclass
-	// field is used to indicate that unicast responses are preferred for this
-	// particular question.  (See Section 5.4.)
-	if unicast {
-		m.Question[0].Qclass |= 1 << 15
+	for {
+		log.Infof("mdns sending mdns query for %x services", len(protocolTable))
+		for _, service := range protocolTable {
+			// query packet
+			m := new(dns.Msg)
+			m.SetQuestion(service, dns.TypePTR)
+
+			// RFC 6762, section 18.12.  Repurposing of Top Bit of qclass in Question
+			// Section
+			//
+			// In the Question Section of a Multicast DNS query, the top bit of the qclass
+			// field is used to indicate that unicast responses are preferred for this
+			// particular question.  (See Section 5.4.)
+			m.Question[0].Qclass |= 1 << 15
+			m.RecursionDesired = false
+
+			if err := c.sendQuery(m); err != nil {
+				log.Error("mdns error sending mdns query", service, err)
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+		select {
+		case <-c.workers.StopChannel:
+			return
+		case <-time.After(queryInterval):
+		}
 	}
-	m.RecursionDesired = false
-
-	log.Info("naming send mdns query for ", serviceAddr)
-	if err := c.sendQuery(m); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // sendQuery is used to multicast a query out
-func (c *MDNSClient) sendQuery(q *dns.Msg) error {
+func (c *Handler) sendQuery(q *dns.Msg) error {
 
 	buf, err := q.Pack()
 	if err != nil {
@@ -337,23 +311,30 @@ func (c *MDNSClient) sendQuery(q *dns.Msg) error {
 	}
 
 	if c.uconn4 != nil {
-		c.uconn4.WriteToUDP(buf, mdnsIPv4Addr)
+		if _, err = c.uconn4.WriteToUDP(buf, mdnsIPv4Addr); err != nil {
+			return err
+		}
 	}
 	if c.uconn6 != nil {
-		c.uconn6.WriteToUDP(buf, mdnsIPv6Addr)
+		if _, err = c.uconn6.WriteToUDP(buf, mdnsIPv6Addr); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // recv is used to receive until we get a shutdown
-func (c *MDNSClient) recv(l *net.UDPConn, msgCh chan *dns.Msg) {
-	if l == nil {
-		return
-	}
+func (c *Handler) recvLoop(l *net.UDPConn, msgCh chan *dns.Msg) {
+	h := c.workers.Begin("recvLoop")
+	defer h.End()
+
 	buf := make([]byte, 65536)
 
-	for !c.closed {
+	for !h.Stopping() {
 		n, err := l.Read(buf)
+		if h.Stopping() {
+			return
+		}
 		if err != nil {
 			log.Printf("MDNS mdns: Failed to read packet: %v", err)
 			continue
@@ -363,30 +344,29 @@ func (c *MDNSClient) recv(l *net.UDPConn, msgCh chan *dns.Msg) {
 			log.Printf("MDNS mdns: Failed to unpack packet: %v", err)
 			continue
 		}
-		log.Debug("naming recv mdns packet ")
 		msgCh <- msg
 	}
 }
 
 // ensureName is used to ensure the named node is in progress
-func ensureName(inprogress map[string]*MDNSServiceEntry, name string) *MDNSServiceEntry {
+func ensureName(inprogress map[string]*Entry, name string) *Entry {
 	mdnsMutex.Lock()
 	defer mdnsMutex.Unlock()
 
 	if inp, ok := inprogress[name]; ok {
 		return inp
 	}
-	inp := &MDNSServiceEntry{
+	inp := &Entry{
 		Name: strings.Split(name, ".")[0],
 	}
 
 	inprogress[name] = inp
-	PrintTable(inprogress)
+	// c.PrintTable(inprogress)
 	return inp
 }
 
 // alias is used to setup an alias between two entries
-func alias(inprogress map[string]*MDNSServiceEntry, src, dst string) {
+func alias(inprogress map[string]*Entry, src, dst string) {
 	srcEntry := ensureName(inprogress, src)
 
 	mdnsMutex.Lock()
