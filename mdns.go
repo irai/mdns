@@ -81,7 +81,8 @@ type Handler struct {
 	// Collect all msg from the 4 connections
 	msgCh chan *dns.Msg
 
-	inprogress map[string]*Entry
+	// Table to hold entries - some entries may be incomplete
+	table map[string]*Entry
 
 	// Notification channel for the caller
 	notification chan<- *Entry
@@ -94,7 +95,7 @@ type Handler struct {
 func NewHandler(nic string) (c *Handler, err error) {
 
 	client := &Handler{}
-	client.inprogress = make(map[string]*Entry)
+	client.table = make(map[string]*Entry)
 	client.workers = goroutinepool.New("mdns")
 
 	// FIXME: Set the multicast interface
@@ -144,7 +145,7 @@ func (c *Handler) getName(ip string) (name string) {
 	mdnsMutex.Lock()
 	defer mdnsMutex.Unlock()
 
-	for _, value := range c.inprogress {
+	for _, value := range c.table {
 		if value.complete() && value.AddrV4.String() == ip {
 			return value.Name
 		}
@@ -156,7 +157,7 @@ func (c *Handler) getTable() (table []Entry) {
 	mdnsMutex.Lock()
 	defer mdnsMutex.Unlock()
 
-	for _, value := range c.inprogress {
+	for _, value := range c.table {
 		if value.complete() {
 			table = append(table, *value)
 		}
@@ -166,9 +167,11 @@ func (c *Handler) getTable() (table []Entry) {
 
 // PrintTable will print entries to stdout
 func (c *Handler) PrintTable() {
-	// table := c.GetTable()
+	mdnsMutex.Lock()
+	table := c.table
+	mdnsMutex.Unlock()
 
-	for k, e := range c.inprogress {
+	for k, e := range table {
 		var ip net.IP
 		if e.AddrV4.Equal(net.IPv4zero) {
 			ip = e.AddrV6
@@ -232,18 +235,46 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 	// Listen until we reach the timeout
 	// finish := time.After(c.params.Timeout)
 	for {
+		var entry *Entry
 		select {
 		case resp := <-c.msgCh:
 			// log.Debug("MDNS channel resp = ", resp)
-			var entry *Entry
 			for _, answer := range append(resp.Answer, resp.Extra...) {
 				//log.Info("mdns in Handler anwer ", answer)
 				switch rr := answer.(type) {
 				case *dns.A:
 					// Pull out the IP
 					log.Debugf("MDNS add %s IP %s", rr.Hdr.Name, rr.A)
-					entry = ensureName(c.inprogress, rr.Hdr.Name)
+					entry = c.ensureName(rr.Hdr.Name)
 					entry.AddrV4 = rr.A
+				case *dns.PTR:
+					// Create new entry for this
+					log.Debugf("naming dns.PTR %s - Name %s", rr.Ptr, rr.Hdr.Name)
+					entry = c.ensureName(rr.Ptr)
+
+				case *dns.SRV:
+					// Check for a target mismatch
+					// rr.Target is the host name in general but Hdr.Name contains the FQN
+					if rr.Target != rr.Hdr.Name {
+						c.alias(rr.Hdr.Name, rr.Target)
+					}
+
+					// Get the port
+					entry = c.ensureName(rr.Hdr.Name)
+					entry.Host = rr.Target
+					entry.Port = int(rr.Port)
+
+				case *dns.TXT:
+					// Pull out the txt
+					entry = c.ensureName(rr.Hdr.Name)
+					entry.Info = strings.Join(rr.Txt, "|")
+					entry.InfoFields = rr.Txt
+					entry.hasTXT = true
+
+				case *dns.AAAA:
+					// Pull out the IP
+					entry = c.ensureName(rr.Hdr.Name)
+					entry.AddrV6 = rr.AAAA
 				}
 			}
 
@@ -349,30 +380,29 @@ func (c *Handler) recvLoop(l *net.UDPConn, msgCh chan *dns.Msg) {
 }
 
 // ensureName is used to ensure the named node is in progress
-func ensureName(inprogress map[string]*Entry, name string) *Entry {
+func (c *Handler) ensureName(name string) *Entry {
 	mdnsMutex.Lock()
 	defer mdnsMutex.Unlock()
 
-	if inp, ok := inprogress[name]; ok {
+	if inp, ok := c.table[name]; ok {
 		return inp
 	}
 	inp := &Entry{
 		Name: strings.Split(name, ".")[0],
 	}
 
-	inprogress[name] = inp
-	// c.PrintTable(inprogress)
+	c.table[name] = inp
 	return inp
 }
 
 // alias is used to setup an alias between two entries
-func alias(inprogress map[string]*Entry, src, dst string) {
-	srcEntry := ensureName(inprogress, src)
+func (c *Handler) alias(src, dst string) {
+	srcEntry := c.ensureName(src)
 
 	mdnsMutex.Lock()
 	defer mdnsMutex.Unlock()
 
 	log.Debugf("MDNS Alias src %s dst %s", src, dst)
 
-	inprogress[dst] = srcEntry
+	c.table[dst] = srcEntry
 }
