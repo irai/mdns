@@ -64,7 +64,7 @@ type Handler struct {
 	// Notification channel for the caller
 	notification chan<- *Entry
 
-	workers *GoroutinePool
+	// workers *GoroutinePool
 }
 
 // Entry is returned after we query for a service
@@ -94,7 +94,6 @@ func NewHandler(nic string) (c *Handler, err error) {
 
 	client := &Handler{}
 	client.table = make(map[string]*Entry)
-	client.workers = goroutinepool.New("mdns")
 
 	// FIXME: Set the multicast interface
 	// if params.Interface != nil {
@@ -176,7 +175,7 @@ func (c *Handler) PrintTable() {
 
 // Stop is used to cleanup the Handler
 func (c *Handler) Stop() {
-	c.workers.Stop() // will stop all goroutines
+	GoroutinePool.Stop() // will stop all goroutines
 }
 
 func (c *Handler) closeAll() {
@@ -214,7 +213,7 @@ func (c *Handler) setInterface(iface *net.Interface) error {
 
 // queryLoop is used to perform a lookup and stream results
 func (c *Handler) queryLoop(queryInterval time.Duration) {
-	h := c.workers.Begin("queryLoop")
+	h := GoroutinePool.Begin("mdns queryLoop")
 	defer h.End()
 
 	for {
@@ -240,7 +239,7 @@ func (c *Handler) queryLoop(queryInterval time.Duration) {
 		}
 
 		select {
-		case <-c.workers.StopChannel:
+		case <-GoroutinePool.StopChannel:
 			return
 		case <-time.After(queryInterval):
 		}
@@ -270,7 +269,7 @@ func (c *Handler) sendQuery(q *dns.Msg) error {
 
 // recv is used to receive until we get a shutdown
 func (c *Handler) recvLoop(l *net.UDPConn, msgCh chan *dns.Msg) {
-	h := c.workers.Begin("recvLoop")
+	h := GoroutinePool.Begin("mdns recvLoop")
 	defer h.End()
 
 	buf := make([]byte, 65536)
@@ -320,7 +319,7 @@ func (c *Handler) findAlias(name string) *Entry {
 
 // ListenAndServe is the main loop to listen for MDNS packets.
 func (c *Handler) ListenAndServe(queryInterval time.Duration) {
-	h := c.workers.Begin("ListenAndServe")
+	h := GoroutinePool.Begin("mdns ListenAndServe")
 	defer h.End()
 
 	go c.recvLoop(c.uconn4, c.msgCh)
@@ -392,7 +391,7 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 				c.notification <- entry
 			}
 
-		case <-c.workers.StopChannel:
+		case <-GoroutinePool.StopChannel:
 			c.closeAll()
 			return
 		}
