@@ -12,15 +12,12 @@ import (
 	"golang.org/x/net/ipv6"
 	"net"
 	"strings"
-	"sync"
 	"time"
 )
 
 var (
 	mdnsIPv4Addr = &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
 	mdnsIPv6Addr = &net.UDPAddr{IP: net.ParseIP("ff02::fb"), Port: 5353}
-
-	mdnsMutex sync.Mutex
 
 	// See man mdns-scan for examples
 	//
@@ -48,26 +45,6 @@ var (
 	}
 )
 
-// Entry is returned after we query for a service
-type Entry struct {
-	Name       string
-	Host       string
-	AddrV4     net.IP
-	AddrV6     net.IP
-	Port       int
-	Info       string
-	InfoFields []string
-
-	hasTXT bool
-	sent   bool
-}
-
-// complete is used to check if we have all the info we need
-func (s *Entry) complete() bool {
-	//return (s.AddrV4 != nil || s.AddrV6 != nil) && s.Port != 0 && s.hasTXT
-	return (s.AddrV4 != nil || s.AddrV6 != nil)
-}
-
 // Handler provides a query interface that can be used to
 // search for service providers using mDNS
 type Handler struct {
@@ -88,6 +65,27 @@ type Handler struct {
 	notification chan<- *Entry
 
 	workers *GoroutinePool
+}
+
+// Entry is returned after we query for a service
+type Entry struct {
+	Name       string
+	Host       string
+	AddrV4     net.IP
+	AddrV6     net.IP
+	Port       int
+	Info       string
+	InfoFields []string
+	Aliases    map[string]string
+
+	hasTXT bool
+	sent   bool
+}
+
+// complete is used to check if we have all the info we need
+func (s *Entry) complete() bool {
+	//return (s.AddrV4 != nil || s.AddrV6 != nil) && s.Port != 0 && s.hasTXT
+	return (s.AddrV4 != nil || s.AddrV6 != nil)
 }
 
 // NewHandler create a Multicast DNS handler for a given interface
@@ -142,8 +140,6 @@ func (c *Handler) AddNotificationChannel(notification chan<- *Entry) {
 }
 
 func (c *Handler) getName(ip string) (name string) {
-	mdnsMutex.Lock()
-	defer mdnsMutex.Unlock()
 
 	for _, value := range c.table {
 		if value.complete() && value.AddrV4.String() == ip {
@@ -154,8 +150,6 @@ func (c *Handler) getName(ip string) (name string) {
 }
 
 func (c *Handler) getTable() (table []Entry) {
-	mdnsMutex.Lock()
-	defer mdnsMutex.Unlock()
 
 	for _, value := range c.table {
 		if value.complete() {
@@ -167,9 +161,7 @@ func (c *Handler) getTable() (table []Entry) {
 
 // PrintTable will print entries to stdout
 func (c *Handler) PrintTable() {
-	mdnsMutex.Lock()
-	table := c.table
-	mdnsMutex.Unlock()
+	table := c.table // there is race here; make it really unlikely to occur
 
 	for k, e := range table {
 		var ip net.IP
@@ -178,7 +170,7 @@ func (c *Handler) PrintTable() {
 		} else {
 			ip = e.AddrV4
 		}
-		log.Infof("MDNS entry %16s %16s %16s %14s %4v %20v %v", k, e.Name, e.Host, ip, e.Port, e.Info, e.InfoFields)
+		log.Infof("MDNS entry %16s %16s %16s %14s %4v Fields: %v Aliases: %v", k, e.Name, e.Host, ip, e.Port, e.InfoFields, e.Aliases)
 	}
 }
 
@@ -220,85 +212,6 @@ func (c *Handler) setInterface(iface *net.Interface) error {
 	return nil
 }
 
-// ListenAndServe is the main loop to listen for MDNS packets.
-func (c *Handler) ListenAndServe(queryInterval time.Duration) {
-	h := c.workers.Begin("ListenAndServe")
-	defer h.End()
-
-	go c.recvLoop(c.uconn4, c.msgCh)
-	go c.recvLoop(c.uconn6, c.msgCh)
-	go c.recvLoop(c.mconn4, c.msgCh)
-	go c.recvLoop(c.mconn6, c.msgCh)
-
-	go c.queryLoop(queryInterval)
-
-	// Listen until we reach the timeout
-	// finish := time.After(c.params.Timeout)
-	for {
-		var entry *Entry
-		select {
-		case resp := <-c.msgCh:
-			// log.Debug("MDNS channel resp = ", resp)
-			for _, answer := range append(resp.Answer, resp.Extra...) {
-				//log.Info("mdns in Handler anwer ", answer)
-				switch rr := answer.(type) {
-				case *dns.A:
-					// Pull out the IP
-					log.Debugf("MDNS add %s IP %s", rr.Hdr.Name, rr.A)
-					entry = c.ensureName(rr.Hdr.Name)
-					entry.AddrV4 = rr.A
-				case *dns.PTR:
-					// Create new entry for this
-					log.Debugf("naming dns.PTR %s - Name %s", rr.Ptr, rr.Hdr.Name)
-					entry = c.ensureName(rr.Ptr)
-
-				case *dns.SRV:
-					// Check for a target mismatch
-					// rr.Target is the host name in general but Hdr.Name contains the FQN
-					if rr.Target != rr.Hdr.Name {
-						c.alias(rr.Hdr.Name, rr.Target)
-					}
-
-					// Get the port
-					entry = c.ensureName(rr.Hdr.Name)
-					entry.Host = rr.Target
-					entry.Port = int(rr.Port)
-
-				case *dns.TXT:
-					// Pull out the txt
-					entry = c.ensureName(rr.Hdr.Name)
-					entry.Info = strings.Join(rr.Txt, "|")
-					entry.InfoFields = rr.Txt
-					entry.hasTXT = true
-
-				case *dns.AAAA:
-					// Pull out the IP
-					entry = c.ensureName(rr.Hdr.Name)
-					entry.AddrV6 = rr.AAAA
-				}
-			}
-
-			if entry == nil {
-				continue
-			}
-
-			log.Info("mdns got new entry ", *entry)
-			entry.sent = true
-			// iphone send  "Denis's\ iphone"
-			entry.Name = strings.Replace(entry.Name, "\\", "", -1)
-
-			// Notify if channel given
-			if c.notification != nil {
-				c.notification <- entry
-			}
-
-		case <-c.workers.StopChannel:
-			c.closeAll()
-			return
-		}
-	}
-}
-
 // queryLoop is used to perform a lookup and stream results
 func (c *Handler) queryLoop(queryInterval time.Duration) {
 	h := c.workers.Begin("queryLoop")
@@ -325,6 +238,7 @@ func (c *Handler) queryLoop(queryInterval time.Duration) {
 			}
 			time.Sleep(15 * time.Millisecond)
 		}
+
 		select {
 		case <-c.workers.StopChannel:
 			return
@@ -381,9 +295,6 @@ func (c *Handler) recvLoop(l *net.UDPConn, msgCh chan *dns.Msg) {
 
 // ensureName is used to ensure the named node is in progress
 func (c *Handler) ensureName(name string) *Entry {
-	mdnsMutex.Lock()
-	defer mdnsMutex.Unlock()
-
 	if inp, ok := c.table[name]; ok {
 		return inp
 	}
@@ -396,13 +307,93 @@ func (c *Handler) ensureName(name string) *Entry {
 }
 
 // alias is used to setup an alias between two entries
-func (c *Handler) alias(src, dst string) {
-	srcEntry := c.ensureName(src)
+func (c *Handler) findAlias(name string) *Entry {
+	for _, entry := range c.table {
+		if _, ok := entry.Aliases[name]; ok {
+			return entry
+		}
+	}
+	log.Debugf("MDNS cannot find alias for name=%s", name)
+	return nil
+}
 
-	mdnsMutex.Lock()
-	defer mdnsMutex.Unlock()
+// ListenAndServe is the main loop to listen for MDNS packets.
+func (c *Handler) ListenAndServe(queryInterval time.Duration) {
+	h := c.workers.Begin("ListenAndServe")
+	defer h.End()
 
-	log.Debugf("MDNS Alias src %s dst %s", src, dst)
+	go c.recvLoop(c.uconn4, c.msgCh)
+	go c.recvLoop(c.uconn6, c.msgCh)
+	go c.recvLoop(c.mconn4, c.msgCh)
+	go c.recvLoop(c.mconn6, c.msgCh)
 
-	c.table[dst] = srcEntry
+	go c.queryLoop(queryInterval)
+
+	// Listen until we reach the timeout
+	// finish := time.After(c.params.Timeout)
+	for {
+		var entry *Entry
+		select {
+		case resp := <-c.msgCh:
+			// log.Debug("MDNS channel resp = ", resp)
+			for _, answer := range append(resp.Answer, resp.Extra...) {
+				log.Debug("mdns processing answer ")
+				switch rr := answer.(type) {
+				case *dns.A:
+					// Pull out the IP
+					log.Debugf("MDNS dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
+					entry = c.ensureName(rr.Hdr.Name)
+					entry.AddrV4 = rr.A
+				case *dns.PTR:
+					// Create new entry for this
+					log.Debugf("mdns dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
+					/***
+					entry = c.ensureName(rr.Ptr)
+					***/
+
+				case *dns.SRV:
+					log.Debugf("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
+
+					// rr.Target is the host name and Hdr.Name contains the FQN
+					entry = c.ensureName(rr.Target)
+					entry.Aliases[rr.Hdr.Name] = rr.Hdr.Name
+					entry.Host = rr.Target
+					entry.Port = int(rr.Port)
+
+				case *dns.TXT:
+					log.Debugf("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
+					// Pull out the txt
+					if entry = c.findAlias(rr.Hdr.Name); entry != nil {
+						entry.Info = strings.Join(rr.Txt, "|")
+						entry.InfoFields = rr.Txt
+						entry.hasTXT = true
+					}
+
+				case *dns.AAAA:
+					log.Debugf("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
+					// Pull out the IP
+					entry = c.ensureName(rr.Hdr.Name)
+					entry.AddrV6 = rr.AAAA
+				}
+			}
+
+			if entry == nil || !entry.complete() {
+				continue
+			}
+
+			log.Info("mdns got new entry ", *entry)
+			entry.sent = true
+			// iphone send  "Bob's\ iphone"
+			entry.Name = strings.Replace(entry.Name, "\\", "", -1)
+
+			// Notify if channel given
+			if c.notification != nil {
+				c.notification <- entry
+			}
+
+		case <-c.workers.StopChannel:
+			c.closeAll()
+			return
+		}
+	}
 }

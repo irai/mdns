@@ -21,7 +21,7 @@ func main() {
 		log.Fatal("error in mdns", err)
 	}
 
-	go mdns.ListenAndServe(time.Minute * 10)
+	go mdns.ListenAndServe(time.Minute * 2)
 
 	// arpChannel := make(chan arp.Entry, 16)
 	// c.AddNotificationChannel(arpChannel)
@@ -35,7 +35,7 @@ func main() {
 func cmd(c *mdns.Handler) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Println("Command: (q)uit | (s)end _service._protocol | (p)rint | (g) loG <level>")
+		fmt.Println("Command: (q)uit | (s)end _service._protocol. | (p)rint | (g) loG <level>")
 		fmt.Print("Enter command: ")
 		text, _ := reader.ReadString('\n')
 		text = strings.ToLower(text[:len(text)-1])
