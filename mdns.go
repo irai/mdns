@@ -299,7 +299,8 @@ func (c *Handler) ensureName(name string) *Entry {
 		return inp
 	}
 	inp := &Entry{
-		Name: strings.Split(name, ".")[0],
+		Name:    strings.Split(name, ".")[0],
+		Aliases: make(map[string]string),
 	}
 
 	c.table[name] = inp
