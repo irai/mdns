@@ -1,8 +1,5 @@
 package mdns
 
-// Cloned from: https://github.com/hashicorp/mdns
-// The MIT License (MIT)
-// Copyright (c) 2014 Armon Dadgar
 
 import (
 	"fmt"
@@ -342,7 +339,6 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 	go c.queryLoop(queryInterval)
 
 	// Listen until we reach the timeout
-	// finish := time.After(c.params.Timeout)
 	for {
 		var entry *Entry
 		select {
