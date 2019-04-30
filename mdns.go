@@ -179,14 +179,18 @@ func (c *Handler) Stop() {
 }
 
 func (c *Handler) closeAll() {
-	c.uconn4.Close()
-	c.mconn4.Close()
-	c.mconn4.Close()
-	c.mconn4.Close()
+	if c.uconn4!= nil {
+		c.uconn4.Close()
+	}
+	if c.mconn4!= nil {
+		c.mconn4.Close()
+	}
+	if c.uconn6!= nil {
 	c.uconn6.Close()
+	}
+	if c.mconn6!= nil {
 	c.mconn6.Close()
-	c.mconn6.Close()
-	c.mconn6.Close()
+	}
 }
 
 // setInterface is used to set the query interface, uses sytem
@@ -322,10 +326,18 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 	h := GoroutinePool.Begin("mdns ListenAndServe")
 	defer h.End()
 
-	go c.recvLoop(c.uconn4, c.msgCh)
-	go c.recvLoop(c.uconn6, c.msgCh)
-	go c.recvLoop(c.mconn4, c.msgCh)
-	go c.recvLoop(c.mconn6, c.msgCh)
+	if c.uconn4 != nil {
+		go c.recvLoop(c.uconn4, c.msgCh)
+	}
+	if c.mconn4 != nil {
+		go c.recvLoop(c.uconn6, c.msgCh)
+	}
+	if c.uconn6 != nil {
+		go c.recvLoop(c.mconn4, c.msgCh)
+	}
+	if c.mconn6 != nil {
+		go c.recvLoop(c.mconn6, c.msgCh)
+	}
 
 	go c.queryLoop(queryInterval)
 

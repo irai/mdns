@@ -38,7 +38,8 @@ func cmd(c *mdns.Handler) {
 		fmt.Println("Command: (q)uit | (s)end _service._protocol. | (p)rint | (g) loG <level>")
 		fmt.Print("Enter command: ")
 		text, _ := reader.ReadString('\n')
-		text = strings.ToLower(text[:len(text)-1])
+		// remove \r\n in windows or \n in linux
+		text = strings.ToLower(strings.TrimRight(text, "\r\n"))
 		fmt.Println(text)
 
 		if text == "" || len(text) < 1 {
