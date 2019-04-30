@@ -179,17 +179,17 @@ func (c *Handler) Stop() {
 }
 
 func (c *Handler) closeAll() {
-	if c.uconn4!= nil {
+	if c.uconn4 != nil {
 		c.uconn4.Close()
 	}
-	if c.mconn4!= nil {
+	if c.mconn4 != nil {
 		c.mconn4.Close()
 	}
-	if c.uconn6!= nil {
-	c.uconn6.Close()
+	if c.uconn6 != nil {
+		c.uconn6.Close()
 	}
-	if c.mconn6!= nil {
-	c.mconn6.Close()
+	if c.mconn6 != nil {
+		c.mconn6.Close()
 	}
 }
 

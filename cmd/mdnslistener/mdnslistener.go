@@ -23,9 +23,6 @@ func main() {
 
 	go mdns.ListenAndServe(time.Minute * 2)
 
-	// arpChannel := make(chan arp.Entry, 16)
-	// c.AddNotificationChannel(arpChannel)
-
 	cmd(mdns)
 
 	mdns.Stop()
@@ -38,8 +35,7 @@ func cmd(c *mdns.Handler) {
 		fmt.Println("Command: (q)uit | (s)end _service._protocol. | (p)rint | (g) loG <level>")
 		fmt.Print("Enter command: ")
 		text, _ := reader.ReadString('\n')
-		// remove \r\n in windows or \n in linux
-		text = strings.ToLower(strings.TrimRight(text, "\r\n"))
+		text = strings.ToLower(strings.TrimRight(text, "\r\n")) // remove \r\n in windows or \n in linux
 		fmt.Println(text)
 
 		if text == "" || len(text) < 1 {
@@ -67,9 +63,6 @@ func cmd(c *mdns.Handler) {
 		case 'p':
 			c.PrintTable()
 
-		case 's':
-			// mdns.Query("in-addr.arpa", "192.168.0.131", true)
-			// mdns.Query("in-addr.arpa", "131.0.168.192", true)
 		}
 	}
 }
