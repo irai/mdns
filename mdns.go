@@ -1,15 +1,15 @@
 package mdns
 
-
 import (
 	"fmt"
+	"net"
+	"strings"
+	"time"
+
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
-	"net"
-	"strings"
-	"time"
 )
 
 var (
@@ -31,6 +31,7 @@ var (
 		"_printer._tcp.",
 		"_http.tcp.",
 		"_raop._tcp.",
+		"_apple-mobdev2._tcp.",
 		"_airplay._tcp.",
 		"_nvstream._tcp.",
 		"_googlecast._tcp.",
