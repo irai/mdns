@@ -83,7 +83,7 @@ type Entry struct {
 // complete is used to check if we have all the info we need
 func (s *Entry) complete() bool {
 	//return (s.AddrV4 != nil || s.AddrV6 != nil) && s.Port != 0 && s.hasTXT
-	return (s.AddrV4 != nil || s.AddrV6 != nil)
+	return (s.AddrV4 != nil)
 }
 
 // NewHandler create a Multicast DNS handler for a given interface
@@ -261,11 +261,13 @@ func (c *Handler) sendQuery(q *dns.Msg) error {
 			return err
 		}
 	}
+	/**
 	if c.uconn6 != nil {
 		if _, err = c.uconn6.WriteToUDP(buf, mdnsIPv6Addr); err != nil {
 			return err
 		}
 	}
+	**/
 	return nil
 }
 
