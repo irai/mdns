@@ -16,8 +16,9 @@ var (
 	mdnsIPv4Addr = &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
 	mdnsIPv6Addr = &net.UDPAddr{IP: net.ParseIP("ff02::fb"), Port: 5353}
 
-	// See man mdns-scan for examples
+	// full IANA list here:
 	//
+	// https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml
 	protocolTable = []string{
 		"_ident._tcp.",
 		"_finger._tcp.",
