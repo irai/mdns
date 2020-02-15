@@ -13,6 +13,11 @@ import (
 )
 
 var (
+	// LogAll controls the level of logging required. By default we only log
+	// error and warning.
+	// Set LogAll to true to see all logs.
+	LogAll bool
+
 	mdnsIPv4Addr = &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
 	mdnsIPv6Addr = &net.UDPAddr{IP: net.ParseIP("ff02::fb"), Port: 5353}
 
@@ -219,7 +224,9 @@ func (c *Handler) queryLoop(queryInterval time.Duration) {
 	defer h.End()
 
 	for {
-		log.Infof("mdns sending mdns query for %x services", len(protocolTable))
+		if LogAll {
+			log.Debugf("mdns sending mdns query for %x services", len(protocolTable))
+		}
 		for _, service := range protocolTable {
 			// query packet
 			m := new(dns.Msg)
@@ -392,7 +399,9 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 				continue
 			}
 
-			log.Info("mdns got new entry ", *entry)
+			if LogAll {
+				log.Info("mdns got new entry ", *entry)
+			}
 			entry.sent = true
 			// iphone send  "Bob's\ iphone"
 			entry.Name = strings.Replace(entry.Name, "\\", "", -1)

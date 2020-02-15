@@ -61,14 +61,18 @@ func (h *goroutinePool) new(name string) (ret *goroutinePool) {
 func (h *goroutinePool) Begin(name string) *goroutine {
 	g := goroutine{name: name, pool: h}
 	atomic.AddInt32(&h.n, 1)
-	log.Infof("%s goroutine started", g.name)
+	if LogAll {
+		log.Debug("%s goroutine started", g.name)
+	}
 	return &g
 }
 
 func (g *goroutine) End() {
 	atomic.AddInt32(&g.pool.n, -1)
 	stopping := atomic.LoadInt32(&g.pool.stopping)
-	log.Infof("%s goroutine finished - remaining %d", g.name, atomic.LoadInt32(&g.pool.n))
+	if LogAll {
+		log.Debugf("%s goroutine finished - remaining %d", g.name, atomic.LoadInt32(&g.pool.n))
+	}
 	if stopping != 0 {
 		g.pool.stoppedChannel <- g
 	}
