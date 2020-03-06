@@ -325,7 +325,9 @@ func (c *Handler) findAlias(name string) *Entry {
 			return entry
 		}
 	}
-	log.Debugf("MDNS cannot find alias for name=%s", name)
+	if LogAll {
+		log.Debugf("MDNS cannot find alias for name=%s", name)
+	}
 	return nil
 }
 
@@ -356,22 +358,30 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 		case resp := <-c.msgCh:
 			// log.Debug("MDNS channel resp = ", resp)
 			for _, answer := range append(resp.Answer, resp.Extra...) {
-				log.Debug("mdns processing answer ")
+				if LogAll {
+					log.Debug("mdns processing answer ")
+				}
 				switch rr := answer.(type) {
 				case *dns.A:
 					// Pull out the IP
-					log.Debugf("MDNS dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
+					if LogAll {
+						log.Debugf("MDNS dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
+					}
 					entry = c.ensureName(rr.Hdr.Name)
 					entry.AddrV4 = rr.A
 				case *dns.PTR:
 					// Create new entry for this
-					log.Debugf("mdns dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
+					if LogAll {
+						log.Debugf("mdns dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
+					}
 					/***
 					entry = c.ensureName(rr.Ptr)
 					***/
 
 				case *dns.SRV:
-					log.Debugf("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
+					if LogAll {
+						log.Debugf("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
+					}
 
 					// rr.Target is the host name and Hdr.Name contains the FQN
 					entry = c.ensureName(rr.Target)
@@ -380,7 +390,9 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 					entry.Port = int(rr.Port)
 
 				case *dns.TXT:
-					log.Debugf("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
+					if LogAll {
+						log.Debugf("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
+					}
 					// Pull out the txt
 					if entry = c.findAlias(rr.Hdr.Name); entry != nil {
 						entry.Info = strings.Join(rr.Txt, "|")
@@ -389,7 +401,9 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 					}
 
 				case *dns.AAAA:
-					log.Debugf("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
+					if LogAll {
+						log.Debugf("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
+					}
 					// Pull out the IP
 					entry = c.ensureName(rr.Hdr.Name)
 					entry.AddrV6 = rr.AAAA
@@ -401,7 +415,7 @@ func (c *Handler) ListenAndServe(queryInterval time.Duration) {
 			}
 
 			if LogAll {
-				log.Info("mdns got new entry ", *entry)
+				log.Debug("mdns got new entry ", *entry)
 			}
 			entry.sent = true
 			// iphone send  "Bob's\ iphone"
