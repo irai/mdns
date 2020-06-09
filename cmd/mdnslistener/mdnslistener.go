@@ -2,18 +2,21 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
-	"github.com/irai/mdns"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/irai/mdns"
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
 	flag.Parse()
 
+	mdns.LogAll = true
 	setLogLevel("info")
 
 	mdns, err := mdns.NewHandler("nic")
@@ -21,18 +24,21 @@ func main() {
 		log.Fatal("error in mdns", err)
 	}
 
-	go mdns.ListenAndServe(time.Minute * 2)
+	ctx, cancel := context.WithCancel(context.TODO())
+	go mdns.ListenAndServe(ctx, time.Minute*2)
 
 	cmd(mdns)
 
-	mdns.Stop()
+	cancel()
+
+	time.Sleep(time.Second)
 
 }
 
 func cmd(c *mdns.Handler) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Println("Command: (q)uit | (s)end _service._protocol. | (p)rint | (g) loG <level>")
+		fmt.Println("Command: (q)uit | (s) <end _service._protocol.> | (p)rint | (g) <log_level>")
 		fmt.Print("Enter command: ")
 		text, _ := reader.ReadString('\n')
 		text = strings.ToLower(strings.TrimRight(text, "\r\n")) // remove \r\n in windows or \n in linux
@@ -52,6 +58,14 @@ func cmd(c *mdns.Handler) {
 			err := setLogLevel(text[2:])
 			if err != nil {
 				log.Error("invalid level. valid levels (error, warn, info, debug) ", err)
+				break
+			}
+		case 's':
+			if len(text) < 3 {
+				break
+			}
+			if err := c.SendQuery(text[2:]); err != nil {
+				log.Error("error sending query ", err)
 				break
 			}
 		case 'l':
