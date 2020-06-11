@@ -202,17 +202,17 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 			// only interested in mdns responses
 			if !resp.Response {
 				if LogAll && log.IsLevelEnabled(log.TraceLevel) {
-					log.Tracef("mdns skipping mdns query %v", resp.Question)
+					log.Debugf("mdns skipping mdns query %v", resp.Question)
 				}
 				continue
 			}
 
-			if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-				log.Trace("mdns processing answer ")
-				// log.Debugf("MDNS channel resp = %+v", resp)
-			}
-
 			entry := &Entry{services: make(map[string]srv)}
+			discoverResponse := false
+
+			if LogAll && log.IsLevelEnabled(log.DebugLevel) {
+				log.Debugf("mdns processing answer id=%v opcode=%v rcode=%v question=%v ", resp.Id, dns.OpcodeToString[resp.Opcode], dns.RcodeToString[resp.Rcode], resp.Question)
+			}
 
 			for _, answer := range append(resp.Answer, resp.Extra...) {
 
@@ -222,20 +222,20 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 					// A record - IPv4
 					// dns.A name=sonosB8E9372ACF56.local. IP=192.168.1.106
 					if LogAll {
-						log.Tracef("MDNS dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
+						log.Debugf("MDNS dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
 					}
 					entry.IPv4 = rr.A
 
 				case *dns.AAAA:
 					// AAAA record - IPv6
-					if LogAll && log.IsLevelEnabled(log.TraceLevel) {
-						log.Tracef("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
+					if LogAll {
+						log.Debugf("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
 					}
 					entry.IPv6 = rr.AAAA
 
 				case *dns.PTR:
 					// Rever DNS lookup (opposite of A record)
-					if LogAll && log.IsLevelEnabled(log.TraceLevel) {
+					if LogAll {
 						log.Tracef("mdns dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
 					}
 
@@ -246,13 +246,20 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 					//     dns.PTR name=_services._dns-sd._udp.local. ptr=_spotify-connect._tcp.local."
 					if rr.Hdr.Name == "_services._dns-sd._udp.local." {
 						if enableService(rr.Ptr) > 0 {
+							if LogAll {
+								log.Debugf("mdns send query ptr=%s", rr.Ptr)
+							}
 							c.SendQuery(rr.Ptr)
 						}
+						discoverResponse = true
 						break
 					}
 
 					// Example spotify ptr answer
 					//   	dns.PTR name=_spotify-connect._tcp.local. ptr=sonosB8E9372ACF56._spotify-connect._tcp.local.
+					if LogAll {
+						log.Debugf("mdns skipping dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
+					}
 
 				case *dns.SRV:
 					// Service record :
@@ -260,23 +267,16 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 					// example:
 					//	  dns.SRV name=sonosB8E9372ACF56._spotify-connect._tcp.local. target=sonosB8E9372ACF56.local. port=1400
 
-					if LogAll && log.IsLevelEnabled(log.TraceLevel) {
-						log.Tracef("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
-					}
-
-					// Assume only one SRV entry - check it just in case
-					if entry.Hostname != "" {
-						log.Warn("mdns skipping second SRV entry=%+v SRV=%+v", entry, rr)
-						break
+					if LogAll {
+						log.Debugf("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
 					}
 
 					// rr.Target is the host name and Hdr.Name contains the FQN
-					entry.Hostname = rr.Target
-					entry.addSRV(rr.Hdr.Name, rr.Port)
+					entry.addSRV(rr.Hdr.Name, rr.Target, rr.Port)
 
 				case *dns.TXT:
-					if LogAll && log.IsLevelEnabled(log.TraceLevel) {
-						log.Tracef("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
+					if LogAll {
+						log.Debugf("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
 					}
 
 					// Pull out the txt
@@ -284,29 +284,26 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 					entry.addTXT(rr.Hdr.Name, rr.Txt)
 
 				default:
-					if LogAll && log.IsLevelEnabled(log.TraceLevel) {
-						log.Tracef("mdns unknown record rr=%+s", rr)
-					}
+					log.Errorf("mdns unknown answer=%+s", answer)
 				}
 
 			}
 
 			// we need a hostname and IPv4 to continue
-			if entry.Hostname == "" || entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) {
-				if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-					log.Debugf("skipping mdns record %+v", entry)
+			if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) {
+				if !discoverResponse && LogAll && log.IsLevelEnabled(log.DebugLevel) {
+					log.Debugf("mdns skipping record no IP answer=%+v ns=%v extra=%v", resp.Answer, resp.Ns, resp.Extra)
 				}
 				continue
 			}
 
 			entry, updated := c.table.processEntry(entry)
 
-			if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-				log.Debugf("mdns got new entry %+v", entry)
-			}
-
 			// Notify if channel given
 			if updated && c.notification != nil {
+				if LogAll && log.IsLevelEnabled(log.DebugLevel) {
+					log.Debugf("mdns updated entry %v", entry.String())
+				}
 				c.notification <- *entry
 			}
 

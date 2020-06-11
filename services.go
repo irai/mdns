@@ -49,6 +49,13 @@ var serviceTable = []serviceDef{
 	{"_psams._udp.local.", false, "playstation"}, // play station
 }
 
+// PrintServices log the services table
+func PrintServices() {
+	for i := range serviceTable {
+		log.Infof("service=%v poll=%v", serviceTable[i].service, serviceTable[i].enabled)
+	}
+}
+
 func enableService(service string) int {
 	serviceTableMutex.Lock()
 	defer serviceTableMutex.Unlock()

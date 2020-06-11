@@ -10,17 +10,17 @@ import (
 )
 
 type srv struct {
-	fqn  string
-	port uint16
-	txt  map[string]string
-	s    *serviceDef
+	fqn    string
+	target string
+	port   uint16
+	txt    map[string]string
+	s      *serviceDef
 }
 
 // Entry contains a full record of a mDNS entry
 //
 // Simplified mdns entry to show the record by IPv4
 type Entry struct {
-	Hostname string
 	IPv4     net.IP
 	IPv6     net.IP
 	Name     string
@@ -30,15 +30,16 @@ type Entry struct {
 
 // String return a simple Entry string
 func (e *Entry) String() string {
-	return fmt.Sprintf("%s %s - %v services", e.Hostname, e.IPv4, len(e.services))
+	return fmt.Sprintf("%16s %s %s - %v services", e.IPv4, e.Name, e.Model, len(e.services))
 }
 
-func (e *Entry) addSRV(fqn string, port uint16) {
+func (e *Entry) addSRV(fqn string, target string, port uint16) {
 	if r, ok := e.services[fqn]; ok {
+		r.target = target
 		r.port = port
 		return
 	}
-	e.services[fqn] = srv{fqn: fqn, port: port, txt: make(map[string]string)}
+	e.services[fqn] = srv{fqn: fqn, target: target, port: port, txt: make(map[string]string)}
 }
 
 func (e *Entry) addTXT(fqn string, txt []string) {
@@ -70,36 +71,60 @@ type mdnsTable struct {
 
 func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 
+	authoritative := false
 	for _, value := range entry.services {
 		switch {
 		case strings.Contains(value.fqn, "_ipp._") ||
 			strings.Contains(value.fqn, "_ipps._") ||
-			strings.Contains(value.fqn, "_printer._") ||
-			strings.Contains(value.fqn, "_privet._") ||
-			strings.Contains(value.fqn, "_uscans._") ||
-			strings.Contains(value.fqn, "_scanner._"):
+			strings.Contains(value.fqn, "_printer._"):
 			// see spec http://devimages.apple.com/opensource/BonjourPrinting.pdf
 			// 9.2.6 ty
 			// The value of this key provides a user readable description of the make and model of the printer
 			// which is suitable for display in a user interface when describing the printer.
-			if v, ok := value.txt["ty"]; ok && v != "" {
-				entry.Model = v
+			entry.Model = value.txt["ty"]
+			entry.Name = value.target
+			authoritative = true
+
+		case strings.Contains(value.fqn, "_privet._") ||
+			strings.Contains(value.fqn, "_uscans._") ||
+			strings.Contains(value.fqn, "_uscan._") ||
+			strings.Contains(value.fqn, "_scanner._"):
+			if !authoritative {
+				entry.Model = value.txt["ty"]
+				entry.Name = value.target
 			}
 
 		case strings.Contains(value.fqn, "_airplay._") || strings.Contains(value.fqn, "_raop._"):
 			entry.Model = value.txt["model"]
+			entry.Name = value.target
+			authoritative = true
+
+		case strings.Contains(value.fqn, "_device-info._"):
+			if !authoritative {
+				entry.Model = value.txt["model"]
+				entry.Name = value.target
+			}
 
 		case strings.Contains(value.fqn, "_xbox._"):
 			entry.Model = "XBox"
+			entry.Name = value.target
+			authoritative = true
 
 		case strings.Contains(value.fqn, "_sonos._"):
 			entry.Model = "Sonos"
+			entry.Name = value.target
+			authoritative = true
 
 		case strings.Contains(value.fqn, "_googlecast._"):
 			entry.Model = "Chromecast"
+			entry.Name = value.target
+			authoritative = true
 
 		case strings.Contains(value.fqn, "_spotify-connect._"):
-			entry.Model = "Speaker"
+			if !authoritative {
+				entry.Model = "Speaker"
+				entry.Name = value.target
+			}
 
 		default:
 			log.Infof("mdns unknown service %+v", value)
@@ -107,39 +132,40 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 		}
 	}
 
-	if entry.Hostname == "" || entry.IPv4.Equal(net.IPv4zero) {
+	if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) {
 		if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-			log.Debugf("mdns invalid entry %+v", entry)
+			log.Errorf("mdns invalid entry %+v", entry)
 		}
 		return nil, false
 	}
 
 	// spaces and special character are escaped with \\
 	// iphone send  "Bob's\ iphone"
-	entry.Name = strings.Replace(entry.Hostname, "\\", "", -1)
+	entry.Name = strings.Replace(entry.Name, "\\", "", -1)
 
 	modified := false
+
 	c.Lock()
-	current := c.table[entry.Hostname]
+	current := c.table[string(entry.IPv4)]
 	if current == nil {
 		current = &Entry{}
 		*current = *entry
 		modified = true
-		log.Debugf("mdns new entry %+v", current)
+		log.Tracef("mdns new entry %+v", current)
 	} else {
-		if entry.Model != "" && current.Model != entry.Model {
+		if (authoritative && current.Model != entry.Model) || (!authoritative && current.Model == "") {
 			current.Model = entry.Model
+			current.Name = entry.Name
 			modified = true
+			log.Tracef("mdns updated model %v", current)
 		}
 
 		// update services
 		for k, v := range entry.services {
 			current.services[k] = v
 		}
-
-		log.Debugf("mdns updated entry %+v", *current)
 	}
-	c.table[current.Hostname] = current
+	c.table[string(current.IPv4)] = current
 	c.Unlock()
 	return current, modified
 }
@@ -148,12 +174,7 @@ func (c *mdnsTable) getEntryByIP(ip net.IP) *Entry {
 	c.RLock()
 	defer c.RUnlock()
 
-	for _, value := range c.table {
-		if value.IPv4.Equal(ip) {
-			return value
-		}
-	}
-	return nil
+	return c.table[string(ip)]
 }
 
 // PrintTable will print entries to stdout
@@ -162,7 +183,7 @@ func (c *mdnsTable) printTable() {
 	defer c.RUnlock()
 
 	for _, v := range c.table {
-		log.Infof("MDNS %16s %v %v", v.IPv4, v.Model, v.Hostname)
+		log.Infof("MDNS %16s %v %v ", v.IPv4, v.Name, v.Model)
 	}
 }
 

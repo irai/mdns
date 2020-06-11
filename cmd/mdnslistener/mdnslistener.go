@@ -17,7 +17,7 @@ func main() {
 	flag.Parse()
 
 	mdns.LogAll = true
-	setLogLevel("info")
+	setLogLevel("debug")
 
 	mdns, err := mdns.NewHandler("nic")
 	if err != nil {
@@ -25,7 +25,7 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.TODO())
-	go mdns.ListenAndServe(ctx, time.Minute*2)
+	go mdns.ListenAndServe(ctx, time.Minute*3)
 
 	cmd(mdns)
 
@@ -38,7 +38,7 @@ func main() {
 func cmd(c *mdns.Handler) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Println("Command: (q)uit | (s) <end _service._protocol.> | (p)rint | (g) <log_level>")
+		fmt.Println("Command: (q)uit | (e) query | (s) <end _service._protocol.> | (l) list protocols | (p)rint | (g) <log_level>")
 		fmt.Print("Enter command: ")
 		text, _ := reader.ReadString('\n')
 		text = strings.ToLower(strings.TrimRight(text, "\r\n")) // remove \r\n in windows or \n in linux
@@ -60,6 +60,12 @@ func cmd(c *mdns.Handler) {
 				log.Error("invalid level. valid levels (error, warn, info, debug) ", err)
 				break
 			}
+		case 'e':
+			c.SendQuery("_services._dns-sd._udp.local.")
+
+		case 'l':
+			mdns.PrintServices()
+
 		case 's':
 			if len(text) < 3 {
 				break
@@ -68,11 +74,6 @@ func cmd(c *mdns.Handler) {
 				log.Error("error sending query ", err)
 				break
 			}
-		case 'l':
-			l := log.GetLevel()
-			setLogLevel("info") // quick hack to print table
-			c.PrintTable()
-			log.SetLevel(l)
 
 		case 'p':
 			c.PrintTable()
