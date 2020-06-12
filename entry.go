@@ -25,7 +25,7 @@ type Entry struct {
 	IPv6     net.IP
 	Name     string
 	Model    string
-	services map[string]srv
+	services map[string]*srv
 }
 
 // String return a simple Entry string
@@ -39,7 +39,7 @@ func (e *Entry) addSRV(fqn string, target string, port uint16) {
 		r.port = port
 		return
 	}
-	e.services[fqn] = srv{fqn: fqn, target: target, port: port, txt: make(map[string]string)}
+	e.services[fqn] = &srv{fqn: fqn, target: target, port: port, txt: make(map[string]string)}
 }
 
 func (e *Entry) addTXT(fqn string, txt []string) {
@@ -61,7 +61,7 @@ func (e *Entry) addTXT(fqn string, txt []string) {
 		return
 	}
 
-	e.services[fqn] = srv{fqn: fqn, txt: m}
+	e.services[fqn] = &srv{fqn: fqn, txt: m}
 }
 
 type mdnsTable struct {
@@ -73,6 +73,12 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 
 	authoritative := false
 	for _, value := range entry.services {
+
+		// Populate name with first available name
+		if entry.Name == "" && value.target != "" {
+			entry.Name = value.target
+		}
+
 		switch {
 		case strings.Contains(value.fqn, "_ipp._") ||
 			strings.Contains(value.fqn, "_ipps._") ||
@@ -82,59 +88,72 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 			// The value of this key provides a user readable description of the make and model of the printer
 			// which is suitable for display in a user interface when describing the printer.
 			entry.Model = value.txt["ty"]
-			entry.Name = value.target
 			authoritative = true
 
 		case strings.Contains(value.fqn, "_privet._") ||
 			strings.Contains(value.fqn, "_uscans._") ||
 			strings.Contains(value.fqn, "_uscan._") ||
+			strings.Contains(value.fqn, "_pdl-datastream._tcp.local.") ||
 			strings.Contains(value.fqn, "_scanner._"):
 			if !authoritative {
 				entry.Model = value.txt["ty"]
-				entry.Name = value.target
 			}
 
 		case strings.Contains(value.fqn, "_airplay._") || strings.Contains(value.fqn, "_raop._"):
 			entry.Model = value.txt["model"]
-			entry.Name = value.target
 			authoritative = true
+
+		case strings.Contains(value.fqn, "_touch-able._tcp.local."):
+			if !authoritative {
+				if m := value.txt["DvTy"]; m != "" { // could also use CtLn
+					entry.Model = m
+				}
+			}
 
 		case strings.Contains(value.fqn, "_device-info._"):
 			if !authoritative {
 				entry.Model = value.txt["model"]
-				entry.Name = value.target
 			}
 
 		case strings.Contains(value.fqn, "_xbox._"):
 			entry.Model = "XBox"
-			entry.Name = value.target
 			authoritative = true
 
 		case strings.Contains(value.fqn, "_sonos._"):
-			entry.Model = "Sonos"
-			entry.Name = value.target
+			entry.Model = "Sonos speaker"
 			authoritative = true
 
 		case strings.Contains(value.fqn, "_googlecast._"):
 			entry.Model = "Chromecast"
-			entry.Name = value.target
 			authoritative = true
 
 		case strings.Contains(value.fqn, "_spotify-connect._"):
 			if !authoritative {
 				entry.Model = "Speaker"
-				entry.Name = value.target
+			}
+
+		case strings.Contains(value.fqn, "_smb._tcp.local."):
+			if !authoritative {
+				if m := value.txt["model"]; m != "" { // Macbook publishes a smb service with model
+					entry.Model = m
+				}
+			}
+
+		case strings.Contains(value.fqn, "_sleep-proxy._udp.local.") || // Apple TV unsolicited mdns multicast
+			strings.Contains(value.fqn, "_http._tcp.local."):
+			if LogAll {
+				log.Debugf("mdns ignoring service %+v", value)
 			}
 
 		default:
-			log.Infof("mdns unknown service %+v", value)
+			log.Errorf("mdns unknown service %+v", value)
 
 		}
 	}
 
-	if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) {
+	if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) || entry.Name == "" {
 		if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-			log.Errorf("mdns invalid entry %+v", entry)
+			log.Errorf("mdns invalid entry %+v", *entry)
 		}
 		return nil, false
 	}

@@ -151,12 +151,12 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 		}
 
 		if err != nil {
-			log.Printf("MDNS mdns: Failed to read packet: %v", err)
+			log.Printf("mdns: Failed to read packet: %v", err)
 			continue
 		}
 		msg := new(dns.Msg)
 		if err := msg.Unpack(buf[:n]); err != nil {
-			log.Printf("MDNS mdns: Failed to unpack packet: %v", err)
+			log.Printf("mdns: Failed to unpack packet: %v", err)
 			continue
 		}
 
@@ -207,7 +207,7 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 				continue
 			}
 
-			entry := &Entry{services: make(map[string]srv)}
+			entry := &Entry{services: make(map[string]*srv)}
 			discoverResponse := false
 
 			if LogAll && log.IsLevelEnabled(log.DebugLevel) {
@@ -222,7 +222,7 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 					// A record - IPv4
 					// dns.A name=sonosB8E9372ACF56.local. IP=192.168.1.106
 					if LogAll {
-						log.Debugf("MDNS dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
+						log.Debugf("mdns dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
 					}
 					entry.IPv4 = rr.A
 
@@ -282,6 +282,11 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 					// Pull out the txt
 					//   dns.TXT name=sonosB8E9372ACF56._spotify-connect._tcp.local. txt=[VERSION=1.0 CPath=/spotifyzc]"
 					entry.addTXT(rr.Hdr.Name, rr.Txt)
+
+				case *dns.NSEC:
+					if LogAll {
+						log.Debugf("mdns dns.NSEC name=%s nextdomain=%s", rr.Hdr.Name, rr.NextDomain)
+					}
 
 				default:
 					log.Errorf("mdns unknown answer=%+s", answer)
