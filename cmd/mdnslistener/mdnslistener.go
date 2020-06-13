@@ -25,14 +25,13 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.TODO())
-	go mdns.ListenAndServe(ctx, time.Minute*3)
 
-	cmd(mdns)
+	go func() {
+		cmd(mdns)
+		cancel()
+	}()
 
-	cancel()
-
-	time.Sleep(time.Second)
-
+	mdns.ListenAndServe(ctx, time.Minute*3)
 }
 
 func cmd(c *mdns.Handler) {

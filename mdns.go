@@ -171,22 +171,43 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 
 // ListenAndServe is the main loop to listen for MDNS packets.
 func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duration) error {
+	var wg sync.WaitGroup
 
 	if c.uconn4 != nil {
-		go c.recvLoop(ctx, c.uconn4, c.msgCh)
+		go func() {
+			wg.Add(1)
+			c.recvLoop(ctx, c.uconn4, c.msgCh)
+			wg.Done()
+		}()
 	}
 	if c.mconn4 != nil {
-		go c.recvLoop(ctx, c.uconn6, c.msgCh)
+		go func() {
+			wg.Add(1)
+			c.recvLoop(ctx, c.uconn6, c.msgCh)
+			wg.Done()
+		}()
 	}
 	if c.uconn6 != nil {
-		go c.recvLoop(ctx, c.mconn4, c.msgCh)
+		go func() {
+			wg.Add(1)
+			c.recvLoop(ctx, c.mconn4, c.msgCh)
+			wg.Done()
+		}()
 	}
 	if c.mconn6 != nil {
-		go c.recvLoop(ctx, c.mconn6, c.msgCh)
+		go func() {
+			wg.Add(1)
+			c.recvLoop(ctx, c.mconn6, c.msgCh)
+			wg.Done()
+		}()
 	}
 
 	if queryInterval > 0 {
-		go c.queryLoop(ctx, queryInterval)
+		go func() {
+			wg.Add(1)
+			c.queryLoop(ctx, queryInterval)
+			wg.Done()
+		}()
 	}
 
 	// Listen until we reach the timeout
@@ -195,6 +216,7 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 
 		case <-ctx.Done():
 			c.closeAll()
+			wg.Wait()
 			return nil
 
 		case resp := <-c.msgCh:
