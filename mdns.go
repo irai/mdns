@@ -174,37 +174,37 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 	var wg sync.WaitGroup
 
 	if c.uconn4 != nil {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			c.recvLoop(ctx, c.uconn4, c.msgCh)
 			wg.Done()
 		}()
 	}
 	if c.mconn4 != nil {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			c.recvLoop(ctx, c.uconn6, c.msgCh)
 			wg.Done()
 		}()
 	}
 	if c.uconn6 != nil {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			c.recvLoop(ctx, c.mconn4, c.msgCh)
 			wg.Done()
 		}()
 	}
 	if c.mconn6 != nil {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			c.recvLoop(ctx, c.mconn6, c.msgCh)
 			wg.Done()
 		}()
 	}
 
 	if queryInterval > 0 {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			c.queryLoop(ctx, queryInterval)
 			wg.Done()
 		}()
