@@ -19,7 +19,7 @@ func newEntry(ctx context.Context, c chan mdns.Entry) {
 	case <-ctx.Done():
 		return
 	case entry := <-c:
-		log.Info("got new entry ", entry.Name, entry.IPv4)
+		fmt.Println("got new entry ", entry.Name, entry.IPv4)
 	}
 }
 
