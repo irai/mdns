@@ -7,31 +7,53 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/irai/mdns"
 	log "github.com/sirupsen/logrus"
 )
 
+func newEntry(ctx context.Context, c chan mdns.Entry) {
+	select {
+	case <-ctx.Done():
+		return
+	case entry := <-c:
+		log.Info("got new entry ", entry.Name, entry.IPv4)
+	}
+}
+
 func main() {
 	flag.Parse()
 
 	mdns.LogAll = true
-	setLogLevel("debug")
+	setLogLevel("trace")
 
-	mdns, err := mdns.NewHandler("nic")
+	ctx, cancel := context.WithCancel(context.TODO())
+
+	handler, err := mdns.NewHandler("nic")
 	if err != nil {
 		log.Fatal("error in mdns", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.TODO())
+	c := make(chan mdns.Entry, 10)
+	handler.AddNotificationChannel(c)
 
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
-		cmd(mdns)
-		cancel()
+		newEntry(ctx, c)
+		wg.Done()
+	}()
+	go func() {
+		handler.ListenAndServe(ctx, time.Minute*3)
+		wg.Done()
 	}()
 
-	mdns.ListenAndServe(ctx, time.Minute*3)
+	cmd(handler)
+	cancel()
+
+	wg.Wait()
 }
 
 func cmd(c *mdns.Handler) {

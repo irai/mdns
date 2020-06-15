@@ -2,6 +2,7 @@ package mdns
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,43 +11,50 @@ import (
 )
 
 type serviceDef struct {
-	service        string
-	enabled        bool
-	classification string
+	service       string
+	enabled       bool
+	defaultModel  string
+	authoritative bool
+	keyName       string
 }
 
-var serviceTableMutex sync.Mutex
+var serviceTableMutex sync.RWMutex
 
 // full IANA list here:
 //
 // https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml
+//
+// Bonjour
+// see spec http://devimages.apple.com/opensource/BonjourPrinting.pdf
 var serviceTable = []serviceDef{
-	{"_ident._tcp.local.", false, ""},
-	{"_finger._tcp.local.", false, ""},
-	{"_workstation._tcp.local.", false, ""},
-	{"_ipp._tcp.local.", false, "printer"},
-	{"_printer._tcp.local.", false, "printer"},
-	{"_netbios-ns._udp.local.", false, ""},
-	{"_spotify-connect._tcp.local.", false, "speaker"},
-	{"_sonos._tcp.local.", false, "speaker"},
-	{"_afpovertcp._tcp.local.", false, ""},
-	{"_device-info._udp.local.", false, ""},
-	{"_snmp._udp.local.", false, ""},
-	{"_music._tcp.local.", false, ""},
-	{"_http.tcp.local.", false, ""},
-	{"_raop._tcp.local.", false, "apple device"},          // Remote Audio Output Protocol (AirTunes) - Apple
-	{"_apple-mobdev2._tcp.local.", false, "apple device"}, // Apple Mobile Device Protocol - Apple
-	{"_airplay._tcp.local.", false, "apple TV"},           //Protocol for streaming of audio/video content - Apple
-	{"_touch-able._tcp.local.", false, "apple device"},    //iPhone and iPod touch Remote Controllable - Apple
-	{"_nvstream._tcp.local.", false, ""},
-	{"_googlecast._tcp.local.", false, "googlecast"},
-	{"_sleep-proxy._udp.local.", false, ""},
-	{"_ssh._tcp.local.", false, ""},
-	{"_lb.dns-sd._udp.local.", false, ""},
-	{"_xbox._tcp.local.", false, "xbox"},
-	{"_xbox._udp.local.", false, "xbox"},
-	{"_psams._tcp.local.", false, "playstation"}, // play station
-	{"_psams._udp.local.", false, "playstation"}, // play station
+	{"_http._tcp.local.", false, "Network server", false, ""},
+	{"_workstation._tcp.local.", false, "", false, ""},
+	{"_ipp._tcp.local.", false, "printer", true, "ty"},
+	{"_ipps._tcp.local.", false, "printer", true, "ty"},
+	{"_printer._tcp.local.", false, "printer", true, "ty"},
+	{"_pdl-datastream._tcp.local.", false, "printer", false, "ty"},
+	{"_privet._tcp.local.", false, "printer", false, "ty"},
+	{"_scanner._tcp.local.", false, "scanner", false, "ty"},
+	{"_uscan._tcp.local.", false, "scanner", false, "ty"},
+	{"_uscans._tcp.local.", false, "scanner", false, "ty"},
+	{"_smb._tcp.local.", false, "", false, "model"},
+	{"_netbios-ns._udp.local.", false, "", false, ""},
+	{"_spotify-connect._tcp.local.", false, "speaker", false, ""},
+	{"_sonos._tcp.local.", false, "Sonos speaker", true, ""},
+	{"_device-info._udp.local.", false, "computer", false, "model"},
+	{"_snmp._udp.local.", false, "", false, ""},
+	{"_music._tcp.local.", false, "", false, ""},
+	{"_raop._tcp.local.", false, "Apple device", false, ""},           // Remote Audio Output Protocol (AirTunes) - Apple
+	{"_apple-mobdev2._tcp.local.", false, "Apple device", false, ""},  // Apple Mobile Device Protocol - Apple
+	{"_airplay._tcp.local.", false, "Apple TV", true, "model"},        //Protocol for streaming of audio/video content - Apple
+	{"_touch-able._tcp.local.", false, "Apple device", false, "DvTy"}, //iPhone and iPod touch Remote Controllable - Apple
+	{"_nvstream._tcp.local.", false, "", false, ""},
+	{"_googlecast._tcp.local.", false, "Chromecast", true, ""},
+	{"_sleep-proxy._udp.local.", false, "", false, ""},
+	{"_xbox._tcp.local.", false, "xbox", true, ""},
+	{"_xbox._udp.local.", false, "xbox", true, ""},
+	{"_psams._tcp.local.", false, "playstation", true, ""}, // play station
+	{"_psams._udp.local.", false, "playstation", true, ""}, // play station
 }
 
 // PrintServices log the services table
@@ -54,6 +62,18 @@ func PrintServices() {
 	for i := range serviceTable {
 		log.Infof("service=%v poll=%v", serviceTable[i].service, serviceTable[i].enabled)
 	}
+}
+
+func findServiceIndex(service string) int {
+	serviceTableMutex.RLock()
+	defer serviceTableMutex.RUnlock()
+
+	for i := range serviceTable {
+		if strings.Contains(service, serviceTable[i].service) {
+			return i
+		}
+	}
+	return -1
 }
 
 func enableService(service string) int {
@@ -70,7 +90,7 @@ func enableService(service string) int {
 		}
 	}
 
-	s := serviceDef{service: service, enabled: true, classification: ""}
+	s := serviceDef{service: service, enabled: true}
 	serviceTable = append(serviceTable, s)
 	log.Warn("mdns enabled new mdns service ", s.service)
 	return 1

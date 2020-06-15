@@ -2,6 +2,7 @@ package mdns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -21,6 +22,9 @@ var (
 
 	mdnsIPv4Addr = &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
 	mdnsIPv6Addr = &net.UDPAddr{IP: net.ParseIP("ff02::fb"), Port: 5353}
+
+	// ErrInvalidChannel nil channel passed for notification
+	ErrInvalidChannel = errors.New("invalid channel")
 )
 
 // Handler provides a query interface that can be used to
@@ -40,7 +44,7 @@ type Handler struct {
 	table      *mdnsTable
 	sync.Mutex // anonymous
 
-	// Notification channel for the caller
+	// Notification channel for new or updated entries
 	notification chan<- Entry
 }
 
@@ -90,8 +94,12 @@ func NewHandler(nic string) (c *Handler, err error) {
 }
 
 // AddNotificationChannel set the channel for notifications
-func (c *Handler) AddNotificationChannel(notification chan<- Entry) {
+func (c *Handler) AddNotificationChannel(notification chan<- Entry) error {
+	if notification == nil {
+		return ErrInvalidChannel
+	}
 	c.notification = notification
+	return nil
 }
 
 // PrintTable log the printer table
@@ -137,7 +145,7 @@ func (c *Handler) setInterface(iface *net.Interface) error {
 }
 
 // recvLoop is used to receive until we get a shutdown
-func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.Msg) {
+func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.Msg) error {
 	log.Debug("mdns recvLoop start")
 	defer log.Debug("mdns recvLoop terminated")
 
@@ -146,26 +154,26 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 	for {
 		n, err := l.Read(buf)
 
-		if nerr, ok := err.(net.Error); ok && !nerr.Temporary() {
-			return
-		}
-
 		if err != nil {
-			log.Printf("mdns: Failed to read packet: %v", err)
+			if nerr, ok := err.(net.Error); ok && !nerr.Temporary() {
+				if ctx.Err() != context.Canceled {
+					log.Errorf("mdns: failed to read packet %v", err)
+				}
+				return err
+			}
+
+			log.Infof("mdns: temporary read failure: %v", err)
 			continue
 		}
+
 		msg := new(dns.Msg)
 		if err := msg.Unpack(buf[:n]); err != nil {
-			log.Printf("mdns: Failed to unpack packet: %v", err)
+			log.Infof("mdns: skipping invalid packet: %v", err)
 			continue
 		}
 
-		select {
-		case msgCh <- msg:
+		msgCh <- msg
 
-		case <-ctx.Done():
-			return
-		}
 	}
 }
 
@@ -328,10 +336,10 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 
 			// Notify if channel given
 			if updated && c.notification != nil {
-				if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-					log.Debugf("mdns updated entry %v", entry.String())
-				}
-				c.notification <- *entry
+				log.WithFields(log.Fields{"name": entry.Name, "ip": entry.IPv4, "model": entry.Model}).Info("mdns updated entry")
+				go func() {
+					c.notification <- *entry
+				}()
 			}
 
 		}

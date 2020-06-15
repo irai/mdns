@@ -69,85 +69,47 @@ type mdnsTable struct {
 	sync.RWMutex // anynymous
 }
 
+func (c *mdnsTable) findByNameNoLock(name string) *Entry {
+	for _, v := range c.table {
+		if v.Name == name {
+			return v
+		}
+	}
+	return nil
+}
+
 func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 
 	authoritative := false
 	for _, value := range entry.services {
 
-		// Populate name with first available name
+		// Populate name with first available
 		if entry.Name == "" && value.target != "" {
 			entry.Name = value.target
 		}
 
-		switch {
-		case strings.Contains(value.fqn, "_ipp._") ||
-			strings.Contains(value.fqn, "_ipps._") ||
-			strings.Contains(value.fqn, "_printer._"):
-			// see spec http://devimages.apple.com/opensource/BonjourPrinting.pdf
-			// 9.2.6 ty
-			// The value of this key provides a user readable description of the make and model of the printer
-			// which is suitable for display in a user interface when describing the printer.
-			entry.Model = value.txt["ty"]
-			authoritative = true
-
-		case strings.Contains(value.fqn, "_privet._") ||
-			strings.Contains(value.fqn, "_uscans._") ||
-			strings.Contains(value.fqn, "_uscan._") ||
-			strings.Contains(value.fqn, "_pdl-datastream._tcp.local.") ||
-			strings.Contains(value.fqn, "_scanner._"):
-			if !authoritative {
-				entry.Model = value.txt["ty"]
+		// find model from TXT entry if available
+		if index := findServiceIndex(value.fqn); index != -1 {
+			s := serviceTable[index]
+			model := ""
+			if s.keyName != "" {
+				model = value.txt[s.keyName]
+			} else {
+				model = s.defaultModel
 			}
 
-		case strings.Contains(value.fqn, "_airplay._") || strings.Contains(value.fqn, "_raop._"):
-			entry.Model = value.txt["model"]
-			authoritative = true
-
-		case strings.Contains(value.fqn, "_touch-able._tcp.local."):
-			if !authoritative {
-				if m := value.txt["DvTy"]; m != "" { // could also use CtLn
-					entry.Model = m
+			if s.authoritative {
+				entry.Model = model
+				authoritative = true
+			} else {
+				if entry.Model == "" && model != "" {
+					entry.Model = model
 				}
 			}
-
-		case strings.Contains(value.fqn, "_device-info._"):
-			if !authoritative {
-				entry.Model = value.txt["model"]
-			}
-
-		case strings.Contains(value.fqn, "_xbox._"):
-			entry.Model = "XBox"
-			authoritative = true
-
-		case strings.Contains(value.fqn, "_sonos._"):
-			entry.Model = "Sonos speaker"
-			authoritative = true
-
-		case strings.Contains(value.fqn, "_googlecast._"):
-			entry.Model = "Chromecast"
-			authoritative = true
-
-		case strings.Contains(value.fqn, "_spotify-connect._"):
-			if !authoritative {
-				entry.Model = "Speaker"
-			}
-
-		case strings.Contains(value.fqn, "_smb._tcp.local."):
-			if !authoritative {
-				if m := value.txt["model"]; m != "" { // Macbook publishes a smb service with model
-					entry.Model = m
-				}
-			}
-
-		case strings.Contains(value.fqn, "_sleep-proxy._udp.local.") || // Apple TV unsolicited mdns multicast
-			strings.Contains(value.fqn, "_http._tcp.local."):
+		} else {
 			if LogAll {
 				log.Debugf("mdns ignoring service %+v", value)
 			}
-
-		default:
-			log.Errorf("mdns unknown service %+v", value)
-
 		}
 	}
 
@@ -167,9 +129,15 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 	c.Lock()
 	current := c.table[string(entry.IPv4)]
 	if current == nil {
+		// delete stale entry if IP changed
+		if e := c.findByNameNoLock(entry.Name); e != nil {
+			log.WithFields(log.Fields{"name": entry.Name, "ip": e.IPv4, "new_ip": entry.IPv4}).Info("mdns changed IP ")
+			delete(c.table, string(e.IPv4))
+		}
 		current = &Entry{}
 		*current = *entry
 		modified = true
+		c.table[string(current.IPv4)] = current
 		log.Tracef("mdns new entry %+v", current)
 	} else {
 		if (authoritative && current.Model != entry.Model) || (!authoritative && current.Model == "") {
@@ -184,7 +152,6 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 			current.services[k] = v
 		}
 	}
-	c.table[string(current.IPv4)] = current
 	c.Unlock()
 	return current, modified
 }
