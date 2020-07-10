@@ -38,10 +38,10 @@ var serviceTable = []serviceDef{
 	{"_uscan._tcp.local.", false, "scanner", false, "ty"},
 	{"_uscans._tcp.local.", false, "scanner", false, "ty"},
 	{"_smb._tcp.local.", false, "", false, "model"},
+	{"_device-info._udp.local.", false, "computer", false, "model"},
 	{"_netbios-ns._udp.local.", false, "", false, ""},
 	{"_spotify-connect._tcp.local.", false, "speaker", false, ""},
 	{"_sonos._tcp.local.", false, "Sonos speaker", true, ""},
-	{"_device-info._udp.local.", false, "computer", false, "model"},
 	{"_snmp._udp.local.", false, "", false, ""},
 	{"_music._tcp.local.", false, "", false, ""},
 	{"_raop._tcp.local.", false, "Apple device", false, ""},           // Remote Audio Output Protocol (AirTunes) - Apple
