@@ -40,7 +40,7 @@ var serviceTable = []serviceDef{
 	{"_smb._tcp.local.", false, "", false, "model"},
 	{"_device-info._udp.local.", false, "computer", false, "model"},
 	{"_netbios-ns._udp.local.", false, "", false, ""},
-	{"_spotify-connect._tcp.local.", false, "speaker", false, ""},
+	{"_spotify-connect._tcp.local.", false, "Spotify speaker", false, ""},
 	{"_sonos._tcp.local.", false, "Sonos speaker", true, ""},
 	{"_snmp._udp.local.", false, "", false, ""},
 	{"_music._tcp.local.", false, "", false, ""},
@@ -49,7 +49,8 @@ var serviceTable = []serviceDef{
 	{"_airplay._tcp.local.", false, "Apple TV", true, "model"},        //Protocol for streaming of audio/video content - Apple
 	{"_touch-able._tcp.local.", false, "Apple device", false, "DvTy"}, //iPhone and iPod touch Remote Controllable - Apple
 	{"_nvstream._tcp.local.", false, "", false, ""},
-	{"_googlecast._tcp.local.", false, "Chromecast", true, ""},
+	{"_googlecast._tcp.local.", false, "Chromecast", true, "md"},
+	{"_googlezone._tcp.local.", false, "Google device", false, ""},
 	{"_sleep-proxy._udp.local.", false, "", false, ""},
 	{"_xbox._tcp.local.", false, "xbox", true, ""},
 	{"_xbox._udp.local.", false, "xbox", true, ""},
