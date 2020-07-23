@@ -1,7 +1,7 @@
 package mdns
 
 import (
-	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -136,36 +136,26 @@ func (c *Handler) SendQuery(service string) error {
 	return nil
 }
 
-// queryLoop will continuosly scan for new services
-func (c *Handler) queryLoop(ctx context.Context, queryInterval time.Duration) {
-	log.Debug("mdns queryLoop started")
-	defer log.Debug("mdns queryLoop terminated")
+// QueryAll send a mdns discovery packet plus a mdns query for each active service on the LAN
+func (c *Handler) QueryAll() error {
 
-	for {
-		if LogAll {
-			log.Debug("mdns sending mdns queries")
-		}
+	// Do a round of service discovery
+	// The listener will pickup responses and call enableService for each
+	if err := c.SendQuery("_services._dns-sd._udp.local."); err != nil {
+		return fmt.Errorf("mdns query fail _services._dns-sd._udp.local.: %w", err)
 
-		// Do a round of service discovery
-		// The listener will pickup responses and call enableService for each
-		c.SendQuery("_services._dns-sd._udp.local.")
-		time.Sleep(time.Second * 3)
+	}
+	time.Sleep(time.Second * 3)
 
-		serviceTableMutex.Lock()
-		for i := range serviceTable {
-			if serviceTable[i].enabled {
-				if err := c.SendQuery(serviceTable[i].service); err != nil {
-					log.Error("mdns error sending mdns query", serviceTable[i].service, err)
-				}
-				time.Sleep(5 * time.Millisecond)
+	serviceTableMutex.Lock()
+	for i := range serviceTable {
+		if serviceTable[i].enabled {
+			if err := c.SendQuery(serviceTable[i].service); err != nil {
+				return fmt.Errorf("mdns query fail %s: %w", serviceTable[i].service, err)
 			}
-		}
-		serviceTableMutex.Unlock()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(queryInterval):
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
+	serviceTableMutex.Unlock()
+	return nil
 }

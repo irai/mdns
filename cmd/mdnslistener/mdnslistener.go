@@ -19,7 +19,7 @@ func newEntry(ctx context.Context, c chan mdns.Entry) {
 	case <-ctx.Done():
 		return
 	case entry := <-c:
-		fmt.Println("got new entry ", entry.Name, entry.IPv4)
+		fmt.Println("mdnslistener got new entry ", entry.Name, entry.IPv4)
 	}
 }
 
@@ -40,14 +40,31 @@ func main() {
 	handler.AddNotificationChannel(c)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
 	go func() {
+		wg.Add(1)
 		newEntry(ctx, c)
 		wg.Done()
 	}()
 	go func() {
-		handler.ListenAndServe(ctx, time.Minute*3)
+		wg.Add(1)
+		handler.ListenAndServe(ctx)
 		wg.Done()
+	}()
+
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+
+		handler.QueryAll()
+		tick := time.NewTicker(time.Minute * 3)
+		for {
+			select {
+			case <-ctx.Done():
+				break
+			case <-tick.C:
+				handler.QueryAll()
+			}
+		}
 	}()
 
 	cmd(handler)

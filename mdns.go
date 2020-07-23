@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
@@ -48,46 +47,32 @@ type Handler struct {
 	notification chan<- Entry
 }
 
-// NewHandler create a Multicast DNS handler for a given interface
+// NewHandler creates an IPv4 Multicast DNS handler for a given interface
+// It will also attempt to create an IPv6 port if available.
 //
 func NewHandler(nic string) (c *Handler, err error) {
 
 	client := &Handler{}
 	client.table = &mdnsTable{table: make(map[string]*Entry)}
 
-	// FIXME: Set the multicast interface
-	// if params.Interface != nil {
-	// if err := Handler.setInterface(params.Interface); err != nil {
-	// return nil, err
-	// }
-	// }
-
 	// channel to receive responses
 	client.msgCh = make(chan *dns.Msg, 32)
 
 	// Unicast
 	if client.uconn4, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0}); err != nil {
-		log.Errorf("MDNS: Failed to bind to udp4 port: %v", err)
+		return nil, fmt.Errorf("failed to bind to udp4 port: %w", err)
 	}
 
 	if client.uconn6, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0}); err != nil {
-		log.Errorf("MDNS: Failed to bind to udp6 port: %v", err)
-	}
-
-	if client.uconn4 == nil && client.uconn6 == nil {
-		return nil, fmt.Errorf("MDNS failed to bind to any unicast udp port")
+		log.Debugf("MDNS: Failed to bind to udp6 port: %v", err)
 	}
 
 	// Multicast
 	if client.mconn4, err = net.ListenMulticastUDP("udp4", nil, mdnsIPv4Addr); err != nil {
-		log.Errorf("MDNS: Failed to bind to udp4 port: %v", err)
+		return nil, fmt.Errorf("failed to bind to multicast udp4 port: %w", err)
 	}
 	if client.mconn6, err = net.ListenMulticastUDP("udp6", nil, mdnsIPv6Addr); err != nil {
-		log.Errorf("MDNS: Failed to bind to udp6 port: %v", err)
-	}
-
-	if client.mconn4 == nil && client.mconn6 == nil {
-		return nil, fmt.Errorf("MDNS failed to bind to any multicast udp port")
+		log.Debugf("MDNS: Failed to bind to udp6 port: %v", err)
 	}
 
 	return client, nil
@@ -178,7 +163,7 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 }
 
 // ListenAndServe is the main loop to listen for MDNS packets.
-func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duration) error {
+func (c *Handler) ListenAndServe(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	if c.uconn4 != nil {
@@ -210,15 +195,7 @@ func (c *Handler) ListenAndServe(ctx context.Context, queryInterval time.Duratio
 		}()
 	}
 
-	if queryInterval > 0 {
-		wg.Add(1)
-		go func() {
-			c.queryLoop(ctx, queryInterval)
-			wg.Done()
-		}()
-	}
-
-	// Listen until we reach the timeout
+	// Listen until the ctx is cancelled
 	for {
 		select {
 
