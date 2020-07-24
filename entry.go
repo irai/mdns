@@ -115,7 +115,9 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 
 	if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) || entry.Name == "" {
 		if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-			log.Errorf("mdns invalid entry %+v", *entry)
+			if LogAll {
+				log.Debugf("mdns invalid entry %+v", *entry)
+			}
 		}
 		return nil, false
 	}
@@ -131,7 +133,9 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 	if current == nil {
 		// delete stale entry if IP changed
 		if e := c.findByNameNoLock(entry.Name); e != nil {
-			log.WithFields(log.Fields{"name": entry.Name, "ip": e.IPv4, "new_ip": entry.IPv4}).Info("mdns changed IP ")
+			if LogAll {
+				log.WithFields(log.Fields{"name": entry.Name, "ip": e.IPv4, "new_ip": entry.IPv4}).Debug("mdns changed IP ")
+			}
 			delete(c.table, string(e.IPv4))
 		}
 		current = &Entry{}
@@ -169,7 +173,7 @@ func (c *mdnsTable) printTable() {
 	defer c.RUnlock()
 
 	for _, v := range c.table {
-		log.Infof("MDNS %16s %v %v ", v.IPv4, v.Name, v.Model)
+		fmt.Printf("MDNS %16s %v %v ", v.IPv4, v.Name, v.Model)
 	}
 }
 

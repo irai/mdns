@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	// LogAll controls the level of logging. By default we only log error and warning.
-	// Set LogAll to true to see all logs in module.
+	// LogAll controls the level of logging in module. By default the module is silent.
+	// Set LogAll to true to see module logs.
 	LogAll bool
 
 	mdnsIPv4Addr = &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
@@ -154,18 +154,22 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 		if err != nil {
 			if nerr, ok := err.(net.Error); ok && !nerr.Temporary() {
 				if ctx.Err() != context.Canceled {
-					log.Errorf("mdns: failed to read packet %v", err)
+					return err
 				}
-				return err
+				return nil
 			}
 
-			log.Infof("mdns: temporary read failure: %v", err)
+			if LogAll {
+				log.Debugf("mdns: temporary read failure: %v", err)
+			}
 			continue
 		}
 
 		msg := new(dns.Msg)
 		if err := msg.Unpack(buf[:n]); err != nil {
-			log.Infof("mdns: skipping invalid packet: %v", err)
+			if LogAll {
+				log.Debugf("mdns: skipping invalid packet: %v", err)
+			}
 			continue
 		}
 
@@ -177,33 +181,45 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 // ListenAndServe is the main loop to listen for MDNS packets.
 func (c *Handler) ListenAndServe(ctx context.Context) error {
 	var wg sync.WaitGroup
+	forceEnd := make(chan error)
 
 	if c.uconn4 != nil {
 		wg.Add(1)
 		go func() {
-			c.recvLoop(ctx, c.uconn4, c.msgCh)
-			wg.Done()
+			defer wg.Done()
+			if err := c.recvLoop(ctx, c.uconn4, c.msgCh); err != nil {
+				forceEnd <- fmt.Errorf("mdns ipv4 listen failed: %w", err)
+			}
 		}()
 	}
 	if c.mconn4 != nil {
 		wg.Add(1)
 		go func() {
-			c.recvLoop(ctx, c.uconn6, c.msgCh)
-			wg.Done()
+			defer wg.Done()
+			if err := c.recvLoop(ctx, c.mconn4, c.msgCh); err != nil {
+				forceEnd <- fmt.Errorf("mdns multicast ipv4 listen failed: %w", err)
+			}
+
 		}()
 	}
 	if c.uconn6 != nil {
 		wg.Add(1)
 		go func() {
-			c.recvLoop(ctx, c.mconn4, c.msgCh)
-			wg.Done()
+			defer wg.Done()
+			if err := c.recvLoop(ctx, c.uconn6, c.msgCh); err != nil {
+				forceEnd <- fmt.Errorf("mdns ipv6 listen failed: %w", err)
+			}
+
 		}()
 	}
 	if c.mconn6 != nil {
 		wg.Add(1)
 		go func() {
-			c.recvLoop(ctx, c.mconn6, c.msgCh)
-			wg.Done()
+			defer wg.Done()
+			if err := c.recvLoop(ctx, c.mconn6, c.msgCh); err != nil {
+				forceEnd <- fmt.Errorf("mdns multicast ipv6 listen failed: %w", err)
+			}
+
 		}()
 	}
 
@@ -215,6 +231,11 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 			c.closeAll()
 			wg.Wait()
 			return nil
+
+		case err := <-forceEnd:
+			c.closeAll()
+			wg.Wait()
+			return err
 
 		case resp := <-c.msgCh:
 
@@ -308,7 +329,9 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					}
 
 				default:
-					log.Errorf("mdns unknown answer=%+s", answer)
+					if LogAll {
+						log.Debugf("mdns unknown answer=%+s", answer)
+					}
 				}
 
 			}
@@ -325,7 +348,9 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 
 			// Notify if channel given
 			if updated && c.notification != nil {
-				log.WithFields(log.Fields{"name": entry.Name, "ip": entry.IPv4, "model": entry.Model}).Info("mdns updated entry")
+				if LogAll {
+					log.WithFields(log.Fields{"name": entry.Name, "ip": entry.IPv4, "model": entry.Model}).Info("mdns updated entry")
+				}
 				go func() {
 					c.notification <- *entry
 				}()
