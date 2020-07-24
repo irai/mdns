@@ -118,21 +118,16 @@ func (c *Handler) SendQuery(service string) error {
 		return err
 	}
 
-	if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-		log.Debug("mdns sending multicast query ", service)
-	}
 	if c.uconn4 != nil {
 		if _, err = c.uconn4.WriteToUDP(buf, mdnsIPv4Addr); err != nil {
 			return err
 		}
 	}
-	/**
 	if c.uconn6 != nil {
 		if _, err = c.uconn6.WriteToUDP(buf, mdnsIPv6Addr); err != nil {
 			return err
 		}
 	}
-	**/
 	return nil
 }
 

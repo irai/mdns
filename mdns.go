@@ -14,9 +14,8 @@ import (
 )
 
 var (
-	// LogAll controls the level of logging required. By default we only log
-	// error and warning.
-	// Set LogAll to true to see all logs.
+	// LogAll controls the level of logging. By default we only log error and warning.
+	// Set LogAll to true to see all logs in module.
 	LogAll bool
 
 	mdnsIPv4Addr = &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
@@ -84,6 +83,19 @@ func (c *Handler) AddNotificationChannel(notification chan<- Entry) error {
 		return ErrInvalidChannel
 	}
 	c.notification = notification
+	go func() {
+		q := cap(notification)
+		i := 0
+		c.Lock()
+		defer c.Unlock()
+		for _, entry := range c.table.table {
+			if i >= q {
+				return
+			}
+			i++
+			c.notification <- *entry
+		}
+	}()
 	return nil
 }
 
