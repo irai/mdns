@@ -61,7 +61,7 @@ var serviceTable = []serviceDef{
 // PrintServices log the services table
 func PrintServices() {
 	for i := range serviceTable {
-		fmt.Printf("service=%v poll=%v", serviceTable[i].service, serviceTable[i].enabled)
+		fmt.Printf("service=%v poll=%v\n", serviceTable[i].service, serviceTable[i].enabled)
 	}
 }
 

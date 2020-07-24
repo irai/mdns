@@ -173,7 +173,7 @@ func (c *mdnsTable) printTable() {
 	defer c.RUnlock()
 
 	for _, v := range c.table {
-		fmt.Printf("MDNS %16s %v %v ", v.IPv4, v.Name, v.Model)
+		fmt.Printf("MDNS %16s %v %v\n", v.IPv4, v.Name, v.Model)
 	}
 }
 

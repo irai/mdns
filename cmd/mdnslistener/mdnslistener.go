@@ -42,16 +42,16 @@ func main() {
 	var wg sync.WaitGroup
 	go func() {
 		wg.Add(1)
+		defer wg.Done()
 		newEntry(ctx, c)
-		wg.Done()
 	}()
 	go func() {
 		wg.Add(1)
+		defer wg.Done()
 		handler.ListenAndServe(ctx)
-		wg.Done()
 	}()
 
-	go func() {
+	go func(ctx context.Context) {
 		wg.Add(1)
 		defer wg.Done()
 
@@ -60,12 +60,12 @@ func main() {
 		for {
 			select {
 			case <-ctx.Done():
-				break
+				return
 			case <-tick.C:
 				handler.QueryAll()
 			}
 		}
-	}()
+	}(ctx)
 
 	cmd(handler)
 	cancel()

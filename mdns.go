@@ -179,7 +179,7 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 // ListenAndServe is the main loop to listen for MDNS packets.
 func (c *Handler) ListenAndServe(ctx context.Context) error {
 	var wg sync.WaitGroup
-	forceEnd := make(chan error)
+	forceEnd := make(chan error, 4)
 
 	if c.uconn4 != nil {
 		wg.Add(1)
@@ -231,6 +231,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 			return nil
 
 		case err := <-forceEnd:
+			log.Debug("mdns force end", err)
 			c.closeAll()
 			wg.Wait()
 			return err
