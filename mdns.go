@@ -89,7 +89,7 @@ func (c *Handler) AddNotificationChannel(notification chan<- Entry) error {
 		c.Lock()
 		defer c.Unlock()
 		for _, entry := range c.table.table {
-			if i >= q {
+			if i >= q { // prevent locking by notifying up to channel size only
 				return
 			}
 			i++
