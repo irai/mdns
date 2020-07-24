@@ -143,8 +143,6 @@ func (c *Handler) setInterface(iface *net.Interface) error {
 
 // recvLoop is used to receive until we get a shutdown
 func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.Msg) error {
-	log.Debug("mdns recvLoop start")
-	defer log.Debug("mdns recvLoop terminated")
 
 	buf := make([]byte, 65536)
 
