@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
@@ -221,6 +222,12 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 		}()
 	}
 
+	// Query all during startup
+	go func() {
+		time.Sleep(time.Millisecond * 300)
+		c.QueryAll()
+	}()
+
 	// Listen until the ctx is cancelled
 	for {
 		select {
@@ -283,6 +290,8 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					//
 					// An example from a Sonos Play3 speaker
 					//     dns.PTR name=_services._dns-sd._udp.local. ptr=_spotify-connect._tcp.local."
+					// Example spotify ptr answer
+					//     dns.PTR name=_spotify-connect._tcp.local. ptr=sonosB8E9372ACF56._spotify-connect._tcp.local.
 					if rr.Hdr.Name == "_services._dns-sd._udp.local." {
 						if enableService(rr.Ptr) > 0 {
 							if LogAll {
@@ -294,8 +303,6 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 						break
 					}
 
-					// Example spotify ptr answer
-					//   	dns.PTR name=_spotify-connect._tcp.local. ptr=sonosB8E9372ACF56._spotify-connect._tcp.local.
 					if LogAll {
 						log.Debugf("mdns skipping dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
 					}
@@ -332,13 +339,14 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 						log.Debugf("mdns unknown answer=%+s", answer)
 					}
 				}
-
 			}
 
 			// we need a hostname and IPv4 to continue
-			if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) {
+			if entry.IPv4 == nil || entry.IPv4.IsUnspecified() {
 				if !discoverResponse && LogAll && log.IsLevelEnabled(log.DebugLevel) {
-					log.Debugf("mdns skipping record no IP answer=%+v ns=%v extra=%v", resp.Answer, resp.Ns, resp.Extra)
+					if LogAll {
+						log.Debugf("mdns skipping record no IP answer=%+v ns=%v extra=%v", resp.Answer, resp.Ns, resp.Extra)
+					}
 				}
 				continue
 			}
@@ -354,7 +362,6 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					c.notification <- *entry
 				}()
 			}
-
 		}
 	}
 }

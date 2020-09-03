@@ -140,16 +140,14 @@ func (c *Handler) QueryAll() error {
 		return fmt.Errorf("mdns query fail _services._dns-sd._udp.local.: %w", err)
 
 	}
-	time.Sleep(time.Second * 3)
+	time.Sleep(time.Millisecond * 5)
 
 	serviceTableMutex.Lock()
 	for i := range serviceTable {
-		if serviceTable[i].enabled {
-			if err := c.SendQuery(serviceTable[i].service); err != nil {
-				return fmt.Errorf("mdns query fail %s: %w", serviceTable[i].service, err)
-			}
-			time.Sleep(5 * time.Millisecond)
+		if err := c.SendQuery(serviceTable[i].service); err != nil {
+			return fmt.Errorf("mdns query fail %s: %w", serviceTable[i].service, err)
 		}
+		time.Sleep(time.Millisecond * 5)
 	}
 	serviceTableMutex.Unlock()
 	return nil

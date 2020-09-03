@@ -142,13 +142,17 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 		*current = *entry
 		modified = true
 		c.table[string(current.IPv4)] = current
-		log.Tracef("mdns new entry %+v", current)
+		if LogAll {
+			log.Debugf("mdns new entry %+v", current)
+		}
 	} else {
 		if (authoritative && current.Model != entry.Model) || (!authoritative && current.Model == "") {
 			current.Model = entry.Model
 			current.Name = entry.Name
 			modified = true
-			log.Tracef("mdns updated model %v", current)
+			if LogAll {
+				log.Debugf("mdns updated model %v", current)
+			}
 		}
 
 		// update services
