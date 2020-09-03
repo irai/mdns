@@ -5,13 +5,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/irai/mdns"
-	log "github.com/sirupsen/logrus"
 )
 
 func newEntry(ctx context.Context, c chan mdns.Entry) {
@@ -27,7 +27,6 @@ func main() {
 	flag.Parse()
 
 	mdns.Debug = true
-	setLogLevel("trace")
 
 	ctx, cancel := context.WithCancel(context.TODO())
 
@@ -93,10 +92,13 @@ func cmd(c *mdns.Handler) {
 			if len(text) < 3 {
 				text = text + "   "
 			}
-			err := setLogLevel(text[2:])
-			if err != nil {
-				log.Error("invalid level. valid levels (error, warn, info, debug) ", err)
-				break
+			switch text[2:] {
+			case "debug":
+				mdns.Debug = true
+			case "error":
+				mdns.Debug = false
+			default:
+				log.Print("invalid level. valid levels (error, debug) ")
 			}
 		case 'e':
 			c.SendQuery("_services._dns-sd._udp.local.")
@@ -109,7 +111,7 @@ func cmd(c *mdns.Handler) {
 				break
 			}
 			if err := c.SendQuery(text[2:]); err != nil {
-				log.Error("error sending query ", err)
+				log.Print("error sending query ", err)
 				break
 			}
 
@@ -118,17 +120,4 @@ func cmd(c *mdns.Handler) {
 
 		}
 	}
-}
-
-func setLogLevel(level string) (err error) {
-
-	if level != "" {
-		l, err := log.ParseLevel(level)
-		if err != nil {
-			return err
-		}
-		log.SetLevel(l)
-	}
-
-	return nil
 }

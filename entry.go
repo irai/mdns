@@ -2,11 +2,10 @@ package mdns
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type srv struct {
@@ -108,16 +107,14 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 			}
 		} else {
 			if Debug {
-				log.Debugf("mdns ignoring service %+v", value)
+				log.Printf("mdns ignoring service %+v", value)
 			}
 		}
 	}
 
 	if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) || entry.Name == "" {
-		if Debug && log.IsLevelEnabled(log.DebugLevel) {
-			if Debug {
-				log.Debugf("mdns invalid entry %+v", *entry)
-			}
+		if Debug {
+			log.Printf("mdns invalid entry %+v", *entry)
 		}
 		return nil, false
 	}
@@ -134,7 +131,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 		// delete stale entry if IP changed
 		if e := c.findByNameNoLock(entry.Name); e != nil {
 			if Debug {
-				log.WithFields(log.Fields{"name": entry.Name, "ip": e.IPv4, "new_ip": entry.IPv4}).Debug("mdns changed IP ")
+				log.Printf("mdns changed IP name=%s ip=%s new_ip=%s", entry.Name, e.IPv4, entry.IPv4)
 			}
 			delete(c.table, string(e.IPv4))
 		}
@@ -143,7 +140,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 		modified = true
 		c.table[string(current.IPv4)] = current
 		if Debug {
-			log.Debugf("mdns new entry %+v", current)
+			log.Printf("mdns new entry %+v", current)
 		}
 	} else {
 		if (authoritative && current.Model != entry.Model) || (!authoritative && current.Model == "") {
@@ -151,7 +148,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 			current.Name = entry.Name
 			modified = true
 			if Debug {
-				log.Debugf("mdns updated model %v", current)
+				log.Printf("mdns updated model %v", current)
 			}
 		}
 

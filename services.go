@@ -2,12 +2,12 @@ package mdns
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
 )
 
 type serviceDef struct {
@@ -93,7 +93,9 @@ func enableService(service string) int {
 
 	s := serviceDef{service: service, enabled: true}
 	serviceTable = append(serviceTable, s)
-	log.Warn("mdns enabled new mdns service ", s.service)
+	if Debug {
+		log.Print("mdns enabled new mdns service ", s.service)
+	}
 	return 1
 }
 

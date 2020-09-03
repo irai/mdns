@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 )
@@ -64,7 +64,7 @@ func NewHandler(nic string) (c *Handler, err error) {
 	}
 
 	if client.uconn6, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0}); err != nil {
-		log.Debugf("MDNS: Failed to bind to udp6 port: %v", err)
+		log.Printf("MDNS: Failed to bind to udp6 port: %v", err)
 	}
 
 	// Multicast
@@ -72,7 +72,7 @@ func NewHandler(nic string) (c *Handler, err error) {
 		return nil, fmt.Errorf("failed to bind to multicast udp4 port: %w", err)
 	}
 	if client.mconn6, err = net.ListenMulticastUDP("udp6", nil, mdnsIPv6Addr); err != nil {
-		log.Debugf("MDNS: Failed to bind to udp6 port: %v", err)
+		log.Printf("MDNS: Failed to bind to udp6 port: %v", err)
 	}
 
 	return client, nil
@@ -159,7 +159,7 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 			}
 
 			if Debug {
-				log.Debugf("mdns: temporary read failure: %v", err)
+				log.Printf("mdns: temporary read failure: %v", err)
 			}
 			continue
 		}
@@ -167,7 +167,7 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 		msg := new(dns.Msg)
 		if err := msg.Unpack(buf[:n]); err != nil {
 			if Debug {
-				log.Debugf("mdns: skipping invalid packet: %v", err)
+				log.Printf("mdns: skipping invalid packet: %v", err)
 			}
 			continue
 		}
@@ -238,7 +238,9 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 			return nil
 
 		case err := <-forceEnd:
-			log.Debug("mdns force end", err)
+			if Debug {
+				log.Print("mdns force end", err)
+			}
 			c.closeAll()
 			wg.Wait()
 			return err
@@ -247,8 +249,8 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 
 			// only interested in mdns responses
 			if !resp.Response {
-				if Debug && log.IsLevelEnabled(log.TraceLevel) {
-					log.Debugf("mdns skipping mdns query %v", resp.Question)
+				if Debug {
+					log.Printf("mdns skipping mdns query %v", resp.Question)
 				}
 				continue
 			}
@@ -256,8 +258,8 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 			entry := &Entry{services: make(map[string]*srv)}
 			discoverResponse := false
 
-			if Debug && log.IsLevelEnabled(log.DebugLevel) {
-				log.Debugf("mdns processing answer id=%v opcode=%v rcode=%v question=%v ", resp.Id, dns.OpcodeToString[resp.Opcode], dns.RcodeToString[resp.Rcode], resp.Question)
+			if Debug {
+				log.Printf("mdns processing answer id=%v opcode=%v rcode=%v question=%v ", resp.Id, dns.OpcodeToString[resp.Opcode], dns.RcodeToString[resp.Rcode], resp.Question)
 			}
 
 			for _, answer := range append(resp.Answer, resp.Extra...) {
@@ -268,21 +270,21 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					// A record - IPv4
 					// dns.A name=sonosB8E9372ACF56.local. IP=192.168.1.106
 					if Debug {
-						log.Debugf("mdns dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
+						log.Printf("mdns dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
 					}
 					entry.IPv4 = rr.A
 
 				case *dns.AAAA:
 					// AAAA record - IPv6
 					if Debug {
-						log.Debugf("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
+						log.Printf("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
 					}
 					entry.IPv6 = rr.AAAA
 
 				case *dns.PTR:
 					// Rever DNS lookup (opposite of A record)
 					if Debug {
-						log.Tracef("mdns dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
+						log.Printf("mdns dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
 					}
 
 					// if PTR is a service discover then this is a pointer to a
@@ -295,7 +297,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					if rr.Hdr.Name == "_services._dns-sd._udp.local." {
 						if enableService(rr.Ptr) > 0 {
 							if Debug {
-								log.Debugf("mdns send query ptr=%s", rr.Ptr)
+								log.Printf("mdns send query ptr=%s", rr.Ptr)
 							}
 							c.SendQuery(rr.Ptr)
 						}
@@ -304,7 +306,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					}
 
 					if Debug {
-						log.Debugf("mdns skipping dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
+						log.Printf("mdns skipping dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
 					}
 
 				case *dns.SRV:
@@ -314,7 +316,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					//	  dns.SRV name=sonosB8E9372ACF56._spotify-connect._tcp.local. target=sonosB8E9372ACF56.local. port=1400
 
 					if Debug {
-						log.Debugf("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
+						log.Printf("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
 					}
 
 					// rr.Target is the host name and Hdr.Name contains the FQN
@@ -322,7 +324,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 
 				case *dns.TXT:
 					if Debug {
-						log.Debugf("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
+						log.Printf("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
 					}
 
 					// Pull out the txt
@@ -331,22 +333,20 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 
 				case *dns.NSEC:
 					if Debug {
-						log.Debugf("mdns dns.NSEC name=%s nextdomain=%s", rr.Hdr.Name, rr.NextDomain)
+						log.Printf("mdns dns.NSEC name=%s nextdomain=%s", rr.Hdr.Name, rr.NextDomain)
 					}
 
 				default:
 					if Debug {
-						log.Debugf("mdns unknown answer=%+s", answer)
+						log.Printf("mdns unknown answer=%+s", answer)
 					}
 				}
 			}
 
 			// we need a hostname and IPv4 to continue
 			if entry.IPv4 == nil || entry.IPv4.IsUnspecified() {
-				if !discoverResponse && Debug && log.IsLevelEnabled(log.DebugLevel) {
-					if Debug {
-						log.Debugf("mdns skipping record no IP answer=%+v ns=%v extra=%v", resp.Answer, resp.Ns, resp.Extra)
-					}
+				if !discoverResponse && Debug {
+					log.Printf("mdns skipping record no IP answer=%+v ns=%v extra=%v", resp.Answer, resp.Ns, resp.Extra)
 				}
 				continue
 			}
@@ -356,7 +356,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 			// Notify if channel given
 			if updated && c.notification != nil {
 				if Debug {
-					log.WithFields(log.Fields{"name": entry.Name, "ip": entry.IPv4, "model": entry.Model}).Info("mdns updated entry")
+					log.Printf("mdns updated entry name=%s ip=%s model=%s", entry.Name, entry.IPv4, entry.Model)
 				}
 				go func() {
 					c.notification <- *entry
