@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	// LogAll controls the level of logging in module. By default the module is silent.
-	// Set LogAll to true to see module logs.
-	LogAll bool
+	// Debug controls the level of logging in module. By default the module is silent.
+	// Set Debug to true to see module logs.
+	Debug bool
 
 	mdnsIPv4Addr = &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
 	mdnsIPv6Addr = &net.UDPAddr{IP: net.ParseIP("ff02::fb"), Port: 5353}
@@ -158,7 +158,7 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 				return nil
 			}
 
-			if LogAll {
+			if Debug {
 				log.Debugf("mdns: temporary read failure: %v", err)
 			}
 			continue
@@ -166,7 +166,7 @@ func (c *Handler) recvLoop(ctx context.Context, l *net.UDPConn, msgCh chan *dns.
 
 		msg := new(dns.Msg)
 		if err := msg.Unpack(buf[:n]); err != nil {
-			if LogAll {
+			if Debug {
 				log.Debugf("mdns: skipping invalid packet: %v", err)
 			}
 			continue
@@ -247,7 +247,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 
 			// only interested in mdns responses
 			if !resp.Response {
-				if LogAll && log.IsLevelEnabled(log.TraceLevel) {
+				if Debug && log.IsLevelEnabled(log.TraceLevel) {
 					log.Debugf("mdns skipping mdns query %v", resp.Question)
 				}
 				continue
@@ -256,7 +256,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 			entry := &Entry{services: make(map[string]*srv)}
 			discoverResponse := false
 
-			if LogAll && log.IsLevelEnabled(log.DebugLevel) {
+			if Debug && log.IsLevelEnabled(log.DebugLevel) {
 				log.Debugf("mdns processing answer id=%v opcode=%v rcode=%v question=%v ", resp.Id, dns.OpcodeToString[resp.Opcode], dns.RcodeToString[resp.Rcode], resp.Question)
 			}
 
@@ -267,21 +267,21 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 				case *dns.A:
 					// A record - IPv4
 					// dns.A name=sonosB8E9372ACF56.local. IP=192.168.1.106
-					if LogAll {
+					if Debug {
 						log.Debugf("mdns dns.A name=%s IP=%s", rr.Hdr.Name, rr.A)
 					}
 					entry.IPv4 = rr.A
 
 				case *dns.AAAA:
 					// AAAA record - IPv6
-					if LogAll {
+					if Debug {
 						log.Debugf("mdns dns.AAAA name=%s ip=%s", rr.Hdr.Name, rr.AAAA)
 					}
 					entry.IPv6 = rr.AAAA
 
 				case *dns.PTR:
 					// Rever DNS lookup (opposite of A record)
-					if LogAll {
+					if Debug {
 						log.Tracef("mdns dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
 					}
 
@@ -294,7 +294,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					//     dns.PTR name=_spotify-connect._tcp.local. ptr=sonosB8E9372ACF56._spotify-connect._tcp.local.
 					if rr.Hdr.Name == "_services._dns-sd._udp.local." {
 						if enableService(rr.Ptr) > 0 {
-							if LogAll {
+							if Debug {
 								log.Debugf("mdns send query ptr=%s", rr.Ptr)
 							}
 							c.SendQuery(rr.Ptr)
@@ -303,7 +303,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 						break
 					}
 
-					if LogAll {
+					if Debug {
 						log.Debugf("mdns skipping dns.PTR name=%s ptr=%s", rr.Hdr.Name, rr.Ptr)
 					}
 
@@ -313,7 +313,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					// example:
 					//	  dns.SRV name=sonosB8E9372ACF56._spotify-connect._tcp.local. target=sonosB8E9372ACF56.local. port=1400
 
-					if LogAll {
+					if Debug {
 						log.Debugf("mdns dns.SRV name=%s target=%s port=%v", rr.Hdr.Name, rr.Target, rr.Port)
 					}
 
@@ -321,7 +321,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					entry.addSRV(rr.Hdr.Name, rr.Target, rr.Port)
 
 				case *dns.TXT:
-					if LogAll {
+					if Debug {
 						log.Debugf("mdns dns.TXT name=%s txt=%s", rr.Hdr.Name, rr.Txt)
 					}
 
@@ -330,12 +330,12 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 					entry.addTXT(rr.Hdr.Name, rr.Txt)
 
 				case *dns.NSEC:
-					if LogAll {
+					if Debug {
 						log.Debugf("mdns dns.NSEC name=%s nextdomain=%s", rr.Hdr.Name, rr.NextDomain)
 					}
 
 				default:
-					if LogAll {
+					if Debug {
 						log.Debugf("mdns unknown answer=%+s", answer)
 					}
 				}
@@ -343,8 +343,8 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 
 			// we need a hostname and IPv4 to continue
 			if entry.IPv4 == nil || entry.IPv4.IsUnspecified() {
-				if !discoverResponse && LogAll && log.IsLevelEnabled(log.DebugLevel) {
-					if LogAll {
+				if !discoverResponse && Debug && log.IsLevelEnabled(log.DebugLevel) {
+					if Debug {
 						log.Debugf("mdns skipping record no IP answer=%+v ns=%v extra=%v", resp.Answer, resp.Ns, resp.Extra)
 					}
 				}
@@ -355,7 +355,7 @@ func (c *Handler) ListenAndServe(ctx context.Context) error {
 
 			// Notify if channel given
 			if updated && c.notification != nil {
-				if LogAll {
+				if Debug {
 					log.WithFields(log.Fields{"name": entry.Name, "ip": entry.IPv4, "model": entry.Model}).Info("mdns updated entry")
 				}
 				go func() {

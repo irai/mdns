@@ -26,7 +26,7 @@ func newEntry(ctx context.Context, c chan mdns.Entry) {
 func main() {
 	flag.Parse()
 
-	mdns.LogAll = true
+	mdns.Debug = true
 	setLogLevel("trace")
 
 	ctx, cancel := context.WithCancel(context.TODO())

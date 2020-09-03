@@ -107,15 +107,15 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 				}
 			}
 		} else {
-			if LogAll {
+			if Debug {
 				log.Debugf("mdns ignoring service %+v", value)
 			}
 		}
 	}
 
 	if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) || entry.Name == "" {
-		if LogAll && log.IsLevelEnabled(log.DebugLevel) {
-			if LogAll {
+		if Debug && log.IsLevelEnabled(log.DebugLevel) {
+			if Debug {
 				log.Debugf("mdns invalid entry %+v", *entry)
 			}
 		}
@@ -133,7 +133,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 	if current == nil {
 		// delete stale entry if IP changed
 		if e := c.findByNameNoLock(entry.Name); e != nil {
-			if LogAll {
+			if Debug {
 				log.WithFields(log.Fields{"name": entry.Name, "ip": e.IPv4, "new_ip": entry.IPv4}).Debug("mdns changed IP ")
 			}
 			delete(c.table, string(e.IPv4))
@@ -142,7 +142,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 		*current = *entry
 		modified = true
 		c.table[string(current.IPv4)] = current
-		if LogAll {
+		if Debug {
 			log.Debugf("mdns new entry %+v", current)
 		}
 	} else {
@@ -150,7 +150,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 			current.Model = entry.Model
 			current.Name = entry.Name
 			modified = true
-			if LogAll {
+			if Debug {
 				log.Debugf("mdns updated model %v", current)
 			}
 		}
