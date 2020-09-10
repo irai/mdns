@@ -101,14 +101,16 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 				entry.Model = model
 				authoritative = true
 			} else {
-				if entry.Model == "" && model != "" {
-					entry.Model = model
+				if model != "" {
+					if entry.Model == "" {
+						entry.Model = model
+					} else if !strings.Contains(entry.Model, model) { // only append if the string is new
+						entry.Model = entry.Model + "," + model
+					}
 				}
 			}
 		} else {
-			if Debug {
-				log.Printf("mdns ignoring service %+v", value)
-			}
+			log.Printf("mdns service not registered %+v", value)
 		}
 	}
 
