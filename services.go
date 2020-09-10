@@ -39,6 +39,7 @@ var serviceTable = []serviceDef{
 	{"_uscans._tcp.local.", false, "scanner", false, "ty"},
 	{"_smb._tcp.local.", false, "", false, "model"},
 	{"_device-info._udp.local.", false, "computer", false, "model"},
+	{"_device-info._tcp.local.", false, "computer", false, "model"},
 	{"_netbios-ns._udp.local.", false, "", false, ""},
 	{"_spotify-connect._tcp.local.", false, "Spotify speaker", false, ""},
 	{"_sonos._tcp.local.", false, "Sonos speaker", true, ""},
