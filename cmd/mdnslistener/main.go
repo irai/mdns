@@ -77,7 +77,7 @@ func main() {
 func cmd(c *mdns.Handler) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Println("Command: (q)uit | (e) query | (s) <end _service._protocol.> | (l) list protocols | (p)rint | (g) <log_level>")
+		fmt.Println("Command: (q)uit | (e) query | (s) <end _service._protocol.> | (l) list protocols | (p)rint | (g) debug|error")
 		fmt.Print("Enter command: ")
 		text, _ := reader.ReadString('\n')
 		text = strings.ToLower(strings.TrimRight(text, "\r\n")) // remove \r\n in windows or \n in linux
