@@ -102,6 +102,9 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 			m := ""
 			if s.keyName != "" {
 				m = value.txt[s.keyName]
+				if m != "" {
+					m = strings.Split(m, ",")[0] // remove trailing ,xxxx
+				}
 			}
 
 			if s.authoritative && m != "" { //Sonos entry does not have model txt; m will be ""
