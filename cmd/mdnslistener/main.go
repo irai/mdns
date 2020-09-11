@@ -15,12 +15,14 @@ import (
 )
 
 func newEntry(ctx context.Context, c chan mdns.Entry) {
+	for {
 	select {
 	case <-ctx.Done():
 		return
 	case entry := <-c:
-		fmt.Println("mdnslistener got new entry ", entry.Name, entry.IPv4)
+		fmt.Println("mdnslistener got new entry ", entry.Name, entry.IPv4, entry.Model)
 	}
+}
 }
 
 func main() {
