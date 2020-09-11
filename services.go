@@ -52,7 +52,7 @@ var serviceTable = []serviceDef{
 	{"_nvstream._tcp.local.", false, "", false, ""},
 	{"_googlecast._tcp.local.", false, "Chromecast", true, "md"},
 	{"_googlezone._tcp.local.", false, "Google device", false, ""},
-	{"_sleep-proxy._udp.local.", false, "", false, ""},
+	{"_sleep-proxy._udp.local.", false, "Apple", false, ""},
 	{"_xbox._tcp.local.", false, "xbox", true, ""},
 	{"_xbox._udp.local.", false, "xbox", true, ""},
 	{"_psams._tcp.local.", false, "playstation", true, ""}, // play station
