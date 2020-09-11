@@ -79,42 +79,61 @@ func (c *mdnsTable) findByNameNoLock(name string) *Entry {
 
 func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 
-	authoritative := false
-	for _, value := range entry.services {
+	model := ""
+	defaultModel := ""
+	name := ""
 
-		// Populate name with first available
-		if entry.Name == "" && value.target != "" {
-			entry.Name = value.target
+	for _, value := range entry.services {
+		// Get name
+		if value.target != "" {
+			switch name {
+			case "":
+				name = value.target
+			default:
+				if name != value.target {
+					log.Printf("mdns ignoring dual name=%s target=%s", name, value.target)
+				}
+			}
 		}
 
 		// find model from TXT entry if available
 		if index := findServiceIndex(value.fqn); index != -1 {
 			s := serviceTable[index]
-			model := ""
+			m := ""
 			if s.keyName != "" {
-				model = value.txt[s.keyName]
-			} else {
-				model = s.defaultModel
+				m = value.txt[s.keyName]
 			}
 
-			if s.authoritative {
-				entry.Model = model
-				authoritative = true
-			} else {
+			if s.authoritative && m != "" { //Sonos entry does not have model txt; m will be ""
+				model = m
+			}
+
+			if m != "" && !strings.Contains(model, m) { // append if string is new only
 				if model != "" {
-					if entry.Model == "" {
-						entry.Model = model
-					} else if !strings.Contains(entry.Model, model) { // only append if the string is new
-						entry.Model = entry.Model + "," + model
-					}
+					model = model + ","
 				}
+				model = model + m
+			}
+
+			if !strings.Contains(defaultModel, s.defaultModel) {
+				if defaultModel != "" {
+					defaultModel = defaultModel + ","
+				}
+				defaultModel = defaultModel + s.defaultModel
 			}
 		} else {
 			log.Printf("mdns service not registered %+v", value)
 		}
 	}
 
-	if entry.IPv4 == nil || entry.IPv4.Equal(net.IPv4zero) || entry.Name == "" {
+	entry.Name = name
+	if model != "" {
+		entry.Model = model
+	} else {
+		entry.Model = defaultModel
+	}
+
+	if entry.IPv4 == nil || entry.IPv4.IsUnspecified() || entry.Name == "" || entry.Model == "" {
 		if Debug {
 			log.Printf("mdns invalid entry %+v", *entry)
 		}
@@ -130,7 +149,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 	c.Lock()
 	current := c.table[string(entry.IPv4)]
 	if current == nil {
-		// delete stale entry if IP changed
+		// delete stale name if IP changed
 		if e := c.findByNameNoLock(entry.Name); e != nil {
 			if Debug {
 				log.Printf("mdns changed IP name=%s ip=%s new_ip=%s", entry.Name, e.IPv4, entry.IPv4)
@@ -145,7 +164,7 @@ func (c *mdnsTable) processEntry(entry *Entry) (*Entry, bool) {
 			log.Printf("mdns new entry %+v", current)
 		}
 	} else {
-		if (authoritative && current.Model != entry.Model) || (!authoritative && current.Model == "") {
+		if current.Model != entry.Model && len(current.Model) < len(entry.Model) {
 			current.Model = entry.Model
 			current.Name = entry.Name
 			modified = true
